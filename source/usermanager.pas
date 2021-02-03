@@ -6,7 +6,7 @@ interface
 uses
   Windows, Messages, SysUtils, Classes, Graphics, Controls, Forms, Dialogs, ComCtrls, StdCtrls,
   ExtCtrls, ToolWin, ClipBrd, Generics.Collections, Generics.Defaults, SynRegExpr, extra_controls,
-  dbconnection, apphelpers, VirtualTrees, Menus, gnugettext;
+  dbconnection, dbstructures, apphelpers, VirtualTrees, Menus, gnugettext;
 
 {$I const.inc}
 
@@ -40,7 +40,7 @@ type
 
   EInputError = class(Exception);
 
-  TUserManagerForm = class(TFormWithSizeGrip)
+  TUserManagerForm = class(TExtForm)
     btnCancel: TButton;
     btnSave: TButton;
     pnlLeft: TPanel;
@@ -158,9 +158,9 @@ type
     { Private declarations }
     FUsers: TUserList;
     FModified, FAdded: Boolean;
-    CloneGrants: TStringList;
+    FCloneGrants: TStringList;
     FPrivObjects: TPrivObjList;
-    PrivsGlobal, PrivsDb, PrivsTable, PrivsRoutine, PrivsColumn: TStringList;
+    FPrivsGlobal, FPrivsDb, FPrivsTable, FPrivsRoutine, FPrivsColumn: TStringList;
     FConnection: TDBConnection;
     procedure SetModified(Value: Boolean);
     property Modified: Boolean read FModified write SetModified;
@@ -207,6 +207,7 @@ end;
 procedure TUserManagerForm.FormCreate(Sender: TObject);
 begin
   // Restore GUI setup
+  HasSizeGrip := True;
   lblWarning.Font.Color := clRed;
   Width := AppSettings.ReadInt(asUsermanagerWindowWidth);
   Height := AppSettings.ReadInt(asUsermanagerWindowHeight);
@@ -214,7 +215,6 @@ begin
   FixVT(listUsers);
   FixVT(treePrivs);
   Mainform.RestoreListSetup(listUsers);
-  TranslateComponent(Self);
   PrivsRead := Explode(',', 'SELECT,SHOW VIEW,SHOW DATABASES,PROCESS,EXECUTE');
   PrivsWrite := Explode(',', 'ALTER,CREATE,DROP,DELETE,UPDATE,INSERT,ALTER ROUTINE,CREATE ROUTINE,CREATE TEMPORARY TABLES,CREATE VIEW,INDEX,TRIGGER,EVENT,REFERENCES,CREATE TABLESPACE');
   PrivsAdmin := Explode(',', 'RELOAD,SHUTDOWN,REPLICATION CLIENT,REPLICATION SLAVE,SUPER,LOCK TABLES,GRANT,FILE,CREATE USER');
@@ -260,37 +260,37 @@ end;
 begin
   FConnection := Mainform.ActiveConnection;
   Version := FConnection.ServerVersionInt;
-  PrivsGlobal := InitPrivList('FILE,PROCESS,RELOAD,SHUTDOWN');
-  PrivsDb := InitPrivList('');
-  PrivsTable := InitPrivList('ALTER,CREATE,DELETE,DROP,GRANT,INDEX');
-  PrivsRoutine := InitPrivList('GRANT');
-  PrivsColumn := InitPrivList('INSERT,SELECT,UPDATE,REFERENCES');
+  FPrivsGlobal := InitPrivList('FILE,PROCESS,RELOAD,SHUTDOWN');
+  FPrivsDb := InitPrivList('');
+  FPrivsTable := InitPrivList('ALTER,CREATE,DELETE,DROP,GRANT,INDEX');
+  FPrivsRoutine := InitPrivList('GRANT');
+  FPrivsColumn := InitPrivList('INSERT,SELECT,UPDATE,REFERENCES');
   PasswordLengthMatters := True;
 
   if Version >= 40002 then begin
-    PrivsGlobal.Add('REPLICATION CLIENT');
-    PrivsGlobal.Add('REPLICATION SLAVE');
-    PrivsGlobal.Add('SHOW DATABASES');
-    PrivsGlobal.Add('SUPER');
-    PrivsDb.Add('CREATE TEMPORARY TABLES');
-    PrivsDb.Add('LOCK TABLES');
-    PrivsRoutine.Add('EXECUTE');
+    FPrivsGlobal.Add('REPLICATION CLIENT');
+    FPrivsGlobal.Add('REPLICATION SLAVE');
+    FPrivsGlobal.Add('SHOW DATABASES');
+    FPrivsGlobal.Add('SUPER');
+    FPrivsDb.Add('CREATE TEMPORARY TABLES');
+    FPrivsDb.Add('LOCK TABLES');
+    FPrivsRoutine.Add('EXECUTE');
   end;
   if Version >= 50001 then begin
-    PrivsTable.Add('CREATE VIEW');
-    PrivsTable.Add('SHOW VIEW');
+    FPrivsTable.Add('CREATE VIEW');
+    FPrivsTable.Add('SHOW VIEW');
   end;
   if Version >= 50003 then begin
-    PrivsGlobal.Add('CREATE USER');
-    PrivsDb.Add('CREATE ROUTINE');
-    PrivsRoutine.Add('ALTER ROUTINE');
+    FPrivsGlobal.Add('CREATE USER');
+    FPrivsDb.Add('CREATE ROUTINE');
+    FPrivsRoutine.Add('ALTER ROUTINE');
   end;
   if Version >= 50106 then begin
-    PrivsDb.Add('TRIGGER');
-    PrivsDb.Add('EVENT');
+    FPrivsDb.Add('TRIGGER');
+    FPrivsDb.Add('EVENT');
   end;
   if Version >= 50404 then begin
-    PrivsGlobal.Add('CREATE TABLESPACE');
+    FPrivsGlobal.Add('CREATE TABLESPACE');
   end;
   { TODO: PROXY priv must be applied with another GRANT syntax:
   GRANT PROXY ON 'employee'@'localhost' TO 'external_auth'@'localhost';
@@ -304,26 +304,27 @@ begin
     PasswordLengthMatters := False;
   end;
 
-  PrivsTable.AddStrings(PrivsColumn);
-  PrivsDb.AddStrings(PrivsTable);
-  PrivsDb.AddStrings(PrivsRoutine);
-  PrivsGlobal.AddStrings(PrivsDb);
+  FPrivsTable.AddStrings(FPrivsColumn);
+  FPrivsDb.AddStrings(FPrivsTable);
+  FPrivsDb.AddStrings(FPrivsRoutine);
+  FPrivsGlobal.AddStrings(FPrivsDb);
 
-  PrivsGlobal.Sorted := False;
-  PrivsGlobal.CustomSort(ComparePrivs);
-  PrivsDb.Sorted := False;
-  PrivsDb.CustomSort(ComparePrivs);
-  PrivsTable.Sorted := False;
-  PrivsTable.CustomSort(ComparePrivs);
-  PrivsRoutine.Sorted := False;
-  PrivsRoutine.CustomSort(ComparePrivs);
-  PrivsColumn.Sorted := False;
-  PrivsColumn.CustomSort(ComparePrivs);
+  FPrivsGlobal.Sorted := False;
+  FPrivsGlobal.CustomSort(ComparePrivs);
+  FPrivsDb.Sorted := False;
+  FPrivsDb.CustomSort(ComparePrivs);
+  FPrivsTable.Sorted := False;
+  FPrivsTable.CustomSort(ComparePrivs);
+  FPrivsRoutine.Sorted := False;
+  FPrivsRoutine.CustomSort(ComparePrivs);
+  FPrivsColumn.Sorted := False;
+  FPrivsColumn.CustomSort(ComparePrivs);
 
 
   // Load user@host list
   try
-    tmp := FConnection.GetVar('SHOW VARIABLES LIKE '+FConnection.EscapeString('skip_name_resolve'), 1);
+
+    tmp := FConnection.GetSessionVariable('skip_name_resolve');
     SkipNameResolve := LowerCase(tmp) = 'on';
 
     FConnection.Query('FLUSH PRIVILEGES');
@@ -369,7 +370,7 @@ begin
     FAdded := False;
     listUsers.OnFocusChanged(listUsers, listUsers.FocusedNode, listUsers.FocusedColumn);
   except
-    on E:EDatabaseError do begin
+    on E:EDbError do begin
       ErrorDialog(E.Message);
       // Closing form in OnShow does not work. Instead, do that in listUsers.OnBeforePaint.
     end;
@@ -390,11 +391,11 @@ begin
   // Free user list and list of available priv names
   FreeAndNil(FUsers);
   FreeAndNil(FPrivObjects);
-  FreeAndNil(PrivsGlobal);
-  FreeAndNil(PrivsDb);
-  FreeAndNil(PrivsTable);
-  FreeAndNil(PrivsRoutine);
-  FreeAndNil(PrivsColumn);
+  FreeAndNil(FPrivsGlobal);
+  FreeAndNil(FPrivsDb);
+  FreeAndNil(FPrivsTable);
+  FreeAndNil(FPrivsRoutine);
+  FreeAndNil(FPrivsColumn);
   Action := caFree;
 end;
 
@@ -517,31 +518,31 @@ begin
 
   if UserSelected then begin
     User := Sender.GetNodeData(Node);
-    UserHost := esc(User.Username)+'@'+esc(User.Host);
+    UserHost := FConnection.EscapeString(User.Username)+'@'+FConnection.EscapeString(User.Host);
     editUsername.Text := User.Username;
     editFromHost.Text := User.Host;
     Caption := Caption + ' - ' + User.Username;
 
     AllPNames := TStringList.Create;
-    AllPNames.AddStrings(PrivsGlobal);
-    AllPNames.AddStrings(PrivsDb);
-    AllPNames.AddStrings(PrivsTable);
-    AllPNames.AddStrings(PrivsRoutine);
-    AllPNames.AddStrings(PrivsColumn);
+    AllPNames.AddStrings(FPrivsGlobal);
+    AllPNames.AddStrings(FPrivsDb);
+    AllPNames.AddStrings(FPrivsTable);
+    AllPNames.AddStrings(FPrivsRoutine);
+    AllPNames.AddStrings(FPrivsColumn);
 
     // New or existing user mode
     if FAdded then begin
-      if Assigned(CloneGrants) then begin
+      if Assigned(FCloneGrants) then begin
         Grants := TStringList.Create;
-        Grants.AddStrings(CloneGrants);
+        Grants.AddStrings(FCloneGrants);
       end else begin
         Grants := TStringList.Create;
         Grants.Add('GRANT USAGE ON *.* TO '+UserHost);
       end;
     end else try
-      Grants := FConnection.GetCol('SHOW GRANTS FOR '+esc(User.Username)+'@'+esc(User.Host));
+      Grants := FConnection.GetCol('SHOW GRANTS FOR '+FConnection.EscapeString(User.Username)+'@'+FConnection.EscapeString(User.Host));
     except
-      on E:EDatabaseError do begin
+      on E:EDbError do begin
         Msg := E.Message;
         if FConnection.LastErrorCode = 1141 then begin
           // Disable this user node lately, for old server which do not show skip-name-resolve variable
@@ -576,11 +577,12 @@ begin
 
         if (rxGrant.Match[4] = '*') and (rxGrant.Match[6] = '*') then begin
           P.DBObj.NodeType := lntNone;
-          P.AllPrivileges := PrivsGlobal;
+          P.AllPrivileges := FPrivsGlobal;
           // http://dev.mysql.com/doc/refman/5.7/en/show-grants.html
           // As of MySQL 5.7.6, SHOW GRANTS output does not include IDENTIFIED BY PASSWORD clauses.
           // Use the SHOW CREATE USER statement instead. See Section 14.7.5.12, "SHOW CREATE USER Syntax".
-          if FConnection.Parameters.IsMySQL and (FConnection.ServerVersionInt < 50706) then begin
+          if (FConnection.Parameters.IsMySQL(False) and (FConnection.ServerVersionInt < 50706))
+            or (not FConnection.Parameters.IsMySQL(False)) then begin
             if not FAdded then begin
               editPassword.TextHint := FConnection.UnescapeString(rxGrant.Match[10]);
               // Set password for changed user, to silence the error message about invalid length
@@ -596,23 +598,23 @@ begin
         end else if (rxGrant.Match[6] = '*') then begin
           P.DBObj.NodeType := lntDb;
           P.DBObj.Database := rxGrant.Match[5];
-          P.AllPrivileges := PrivsDb;
+          P.AllPrivileges := FPrivsDb;
         end else begin
           P.DBObj.Database := rxGrant.Match[5];
           P.DBObj.Name := rxGrant.Match[7];
           if UpperCase(rxGrant.Match[3]) = 'FUNCTION' then begin
             P.DBObj.NodeType := lntFunction;
-            P.AllPrivileges := PrivsRoutine;
+            P.AllPrivileges := FPrivsRoutine;
           end else if (UpperCase(rxGrant.Match[3]) = 'PROCEDURE') then begin
             P.DBObj.NodeType := lntProcedure;
-            P.AllPrivileges := PrivsRoutine;
+            P.AllPrivileges := FPrivsRoutine;
           end else begin
             Obj := P.DBObj.Connection.FindObject(P.DBObj.Database, P.DBObj.Name);
             if (Obj <> nil) and (Obj.NodeType = lntView) then
               P.DBObj.NodeType := lntView
             else
               P.DBObj.NodeType := lntTable;
-            P.AllPrivileges := PrivsTable;
+            P.AllPrivileges := FPrivsTable;
           end;
         end;
 
@@ -648,7 +650,7 @@ begin
                   PCol.DBObj.Database := P.DBObj.Database;
                   PCol.DBObj.Name := P.DBObj.Name;
                   PCol.DBObj.Column := Trim(Cols[j]);
-                  PCol.AllPrivileges := PrivsColumn;
+                  PCol.AllPrivileges := FPrivsColumn;
                   FPrivObjects.Add(PCol);
                 end;
                 PCol.OrgPrivs.Add(rxTemp.Match[1]);
@@ -734,7 +736,7 @@ begin
           ' TO ' + UserHost;
       end;
       // Flag all privs as added, so "Save" action applies them
-      if Assigned(CloneGrants) then
+      if Assigned(FCloneGrants) then
         Ptmp.AddedPrivs.AddStrings(Ptmp.OrgPrivs);
     end;
 
@@ -742,7 +744,7 @@ begin
     rxGrant.Free;
     rxTemp.Free;
     FreeAndNil(Grants);
-    FreeAndNil(CloneGrants);
+    FreeAndNil(FCloneGrants);
     FreeAndNil(AllPnames);
   end;
 
@@ -1051,9 +1053,9 @@ var
 begin
   // Create new or clone existing user
   if Sender = btnCloneUser then begin
-    CloneGrants := TStringList.Create;
+    FCloneGrants := TStringList.Create;
     for P in FPrivObjects do
-      CloneGrants.Add(P.GrantCode);
+      FCloneGrants.Add(P.GrantCode);
     OldUser := listUsers.GetNodeData(listUsers.FocusedNode);
     NewHost := OldUser.Host;
     NewUsername := OldUser.Username;
@@ -1124,11 +1126,11 @@ begin
     Priv := TPrivObj.Create;
     Priv.DBObj := DBObject;
     case Priv.DBObj.NodeType of
-      lntNone: Priv.AllPrivileges := PrivsGlobal;
-      lntDb: Priv.AllPrivileges := PrivsDb;
-      lntTable, lntView: Priv.AllPrivileges := PrivsTable;
-      lntFunction, lntProcedure: Priv.AllPrivileges := PrivsRoutine;
-      lntColumn: Priv.AllPrivileges := PrivsColumn;
+      lntNone: Priv.AllPrivileges := FPrivsGlobal;
+      lntDb: Priv.AllPrivileges := FPrivsDb;
+      lntTable, lntView: Priv.AllPrivileges := FPrivsTable;
+      lntFunction, lntProcedure: Priv.AllPrivileges := FPrivsRoutine;
+      lntColumn: Priv.AllPrivileges := FPrivsColumn;
     end;
     // Assign minimum privileges
     case Priv.DBObj.NodeType of
@@ -1183,8 +1185,8 @@ begin
       FocusedUser.Problem := upEmptyPassword
   end;
 
-  OrgUserHost := esc(FocusedUser.Username)+'@'+esc(FocusedUser.Host);
-  UserHost := esc(editUsername.Text)+'@'+esc(editFromHost.Text);
+  OrgUserHost := FConnection.EscapeString(FocusedUser.Username)+'@'+FConnection.EscapeString(FocusedUser.Host);
+  UserHost := FConnection.EscapeString(editUsername.Text)+'@'+FConnection.EscapeString(editFromHost.Text);
 
   try
     // Ensure we have a unique user@host combination
@@ -1206,9 +1208,9 @@ begin
       if editPassword.Modified then begin
         // Add "PASSWORD" clause when it's a hash already
         if (Copy(editPassword.Text, 1, 1) = '*') and (Length(editPassword.Text) = 41) then
-          Create := Create + ' IDENTIFIED BY PASSWORD '+esc(editPassword.Text)
+          Create := Create + ' IDENTIFIED BY PASSWORD '+FConnection.EscapeString(editPassword.Text)
         else
-          Create := Create + ' IDENTIFIED BY '+esc(editPassword.Text);
+          Create := Create + ' IDENTIFIED BY '+FConnection.EscapeString(editPassword.Text);
       end;
       FConnection.Query(Create);
       PasswordSet := True;
@@ -1270,7 +1272,7 @@ begin
           0: RequireClause := RequireClause + 'NONE';
           1: RequireClause := RequireClause + 'SSL';
           2: RequireClause := RequireClause + 'X509';
-          3: RequireClause := RequireClause + 'CIPHER '+esc(editCipher.Text)+' ISSUER '+esc(editIssuer.Text)+' SUBJECT '+esc(editSubject.Text);
+          3: RequireClause := RequireClause + 'CIPHER '+FConnection.EscapeString(editCipher.Text)+' ISSUER '+FConnection.EscapeString(editIssuer.Text)+' SUBJECT '+FConnection.EscapeString(editSubject.Text);
         end;
         if (FocusedUser.SSL = comboSSL.ItemIndex)
           and (FocusedUser.Cipher = editCipher.Text)
@@ -1307,9 +1309,9 @@ begin
     // Set password
     if editPassword.Modified and (not PasswordSet) then begin
       if (not FConnection.Parameters.IsMariaDB) and (FConnection.ServerVersionInt >= 50706) then
-        FConnection.Query('SET PASSWORD FOR ' + OrgUserHost + ' = '+esc(editPassword.Text))
+        FConnection.Query('SET PASSWORD FOR ' + OrgUserHost + ' = '+FConnection.EscapeString(editPassword.Text))
       else
-        FConnection.Query('SET PASSWORD FOR ' + OrgUserHost + ' = PASSWORD('+esc(editPassword.Text)+')');
+        FConnection.Query('SET PASSWORD FOR ' + OrgUserHost + ' = PASSWORD('+FConnection.EscapeString(editPassword.Text)+')');
     end;
 
     // Rename user
@@ -1320,8 +1322,8 @@ begin
         Tables := Explode(',', 'user,db,tables_priv,columns_priv');
         for Table in Tables do begin
           FConnection.Query('UPDATE '+FConnection.QuoteIdent('mysql')+'.'+FConnection.QuoteIdent(Table)+
-            ' SET User='+esc(editUsername.Text)+', Host='+esc(editFromHost.Text)+
-            ' WHERE User='+esc(FocusedUser.Username)+' AND Host='+esc(FocusedUser.Host)
+            ' SET User='+FConnection.EscapeString(editUsername.Text)+', Host='+FConnection.EscapeString(editFromHost.Text)+
+            ' WHERE User='+FConnection.EscapeString(FocusedUser.Username)+' AND Host='+FConnection.EscapeString(FocusedUser.Host)
             );
         end;
         FreeAndNil(Tables);
@@ -1341,7 +1343,7 @@ begin
     FocusedUser.Subject := editSubject.Text;
     listUsers.OnFocusChanged(listUsers, listUsers.FocusedNode, listUsers.FocusedColumn);
   except
-    on E:EDatabaseError do
+    on E:EDbError do
       ErrorDialog(E.Message);
     on E:EInputError do
       ErrorDialog(E.Message);
@@ -1375,7 +1377,7 @@ begin
     listUsers.DeleteNode(listUsers.FocusedNode);
     FAdded := False;
   end else if MessageDialog(f_('Delete user %s@%s?', [User.Username, User.Host]), mtConfirmation, [mbYes, mbCancel]) = mrYes then begin
-    UserHost := esc(User.Username)+'@'+esc(User.Host);
+    UserHost := FConnection.EscapeString(User.Username)+'@'+FConnection.EscapeString(User.Host);
     try
       // Revoke privs explicitly, required on old servers.
       // Newer servers only require one DROP USER query
@@ -1384,13 +1386,13 @@ begin
         FConnection.Query('REVOKE GRANT OPTION ON *.* FROM '+UserHost);
       end;
       if FConnection.ServerVersionInt < 40101 then
-        FConnection.Query('DELETE FROM mysql.user WHERE User='+esc(User.Username)+' AND Host='+esc(User.Host))
+        FConnection.Query('DELETE FROM mysql.user WHERE User='+FConnection.EscapeString(User.Username)+' AND Host='+FConnection.EscapeString(User.Host))
       else
         FConnection.Query('DROP USER '+UserHost);
       FConnection.Query('FLUSH PRIVILEGES');
       FUsers.Remove(User^);
       listUsers.DeleteNode(listUsers.FocusedNode);
-    except on E:EDatabaseError do
+    except on E:EDbError do
       ErrorDialog(E.Message);
     end;
   end;
@@ -1500,7 +1502,8 @@ var
   rx: TRegExpr;
 begin
   rx := TRegExpr.Create;
-  rx.Expression := '^(localhost|[\d\.\/\:]+|.*%.*|[\w\d]{4}\:.*)$';
+  // Valid ips or wildcards which do not need name resolving:
+  rx.Expression := '^(localhost|[\d\.\/\:_]+|.*%.*|[\w\d_]{4}\:.*)$';
   Result := not rx.Exec(Host);
   rx.Free;
 end;

@@ -4,13 +4,13 @@ interface
 
 uses
   Windows, SysUtils, Classes, Controls, Forms, Dialogs, StdCtrls, ExtCtrls,
-  dbconnection, mysql_structures, ComCtrls, gnugettext, SynRegExpr, extra_controls;
+  dbconnection, dbstructures, ComCtrls, gnugettext, SynRegExpr, extra_controls;
 
 type
   TVarType = (vtString, vtNumeric, vtBoolean, vtEnum);
   EVariableError = class(Exception);
 
-  TfrmEditVariable = class(TFormWithSizeGrip)
+  TfrmEditVariable = class(TExtForm)
     btnOK: TButton;
     btnCancel: TButton;
     grpScope: TGroupBox;
@@ -55,7 +55,7 @@ uses main, apphelpers;
 
 procedure TfrmEditVariable.FormCreate(Sender: TObject);
 begin
-  TranslateComponent(Self);
+  HasSizeGrip := True;
   Width := AppSettings.ReadInt(asEditVarWindowWidth);
   Height := AppSettings.ReadInt(asEditVarWindowHeight);
 end;
@@ -187,7 +187,7 @@ begin
   try
     MainForm.ActiveConnection.Query(sql);
   except
-    on E:EDatabaseError do begin
+    on E:EDbError do begin
       ModalResult := mrNone;
       ErrorDialog(E.Message);
     end;

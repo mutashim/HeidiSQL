@@ -8,7 +8,7 @@ uses
   Vcl.Menus, Clipbrd, Vcl.ComCtrls, System.Math;
 
 type
-  TfrmPasswordChange = class(TFormWithSizeGrip)
+  TfrmPasswordChange = class(TExtForm)
     lblHeading: TLabel;
     lblPassword: TLabel;
     lblRepeatPassword: TLabel;
@@ -57,7 +57,7 @@ uses main, apphelpers;
 
 procedure TfrmPasswordChange.FormCreate(Sender: TObject);
 begin
-  TranslateComponent(Self);
+  HasSizeGrip := True;
 end;
 
 

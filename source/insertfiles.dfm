@@ -8,7 +8,11 @@ object frmInsertFiles: TfrmInsertFiles
   Color = clBtnFace
   Constraints.MinHeight = 353
   Constraints.MinWidth = 475
-  ParentFont = True
+  Font.Charset = DEFAULT_CHARSET
+  Font.Color = clWindowText
+  Font.Height = -11
+  Font.Name = 'Tahoma'
+  Font.Style = []
   OldCreateOrder = False
   Position = poOwnerFormCenter
   OnClose = FormClose
@@ -99,7 +103,7 @@ object frmInsertFiles: TfrmInsertFiles
       EditDelay = 0
       Header.AutoSizeIndex = 2
       Header.Images = MainForm.VirtualImageListMain
-      Header.Options = [hoAutoResize, hoColumnResize, hoDrag, hoShowSortGlyphs, hoVisible]
+      Header.Options = [hoAutoResize, hoColumnResize, hoDrag, hoShowSortGlyphs, hoVisible, hoDisableAnimatedResize, hoAutoResizeInclCaption]
       Header.PopupMenu = MainForm.popupListHeader
       TabOrder = 2
       TreeOptions.MiscOptions = [toAcceptOLEDrop, toEditable, toFullRepaintOnResize, toGridExtensions, toInitOnSave, toToggleOnDblClick, toWheelPanning, toEditOnClick]
@@ -129,7 +133,7 @@ object frmInsertFiles: TfrmInsertFiles
           Options = [coDraggable, coEnabled, coParentBidiMode, coParentColor, coResizable, coShowDropMark, coVisible, coAllowFocus]
           Position = 2
           Text = 'Value'
-          Width = 296
+          Width = 292
         end>
     end
   end
@@ -171,7 +175,7 @@ object frmInsertFiles: TfrmInsertFiles
       Height = 128
       Anchors = [akLeft, akTop, akRight, akBottom]
       Header.AutoSizeIndex = 0
-      Header.Options = [hoAutoResize, hoColumnResize, hoDrag, hoHotTrack, hoShowImages, hoShowSortGlyphs, hoVisible]
+      Header.Options = [hoAutoResize, hoColumnResize, hoDrag, hoHotTrack, hoShowImages, hoShowSortGlyphs, hoVisible, hoDisableAnimatedResize, hoAutoResizeInclCaption]
       Header.PopupMenu = MainForm.popupListHeader
       Header.SortColumn = 0
       TabOrder = 0
@@ -197,7 +201,7 @@ object frmInsertFiles: TfrmInsertFiles
         item
           Position = 0
           Text = 'Filename'
-          Width = 326
+          Width = 322
         end
         item
           CheckBox = True
@@ -229,6 +233,7 @@ object frmInsertFiles: TfrmInsertFiles
         Top = 0
         Caption = 'Add'
         ImageIndex = 45
+        ImageName = 'icons8-add'
         OnClick = btnAddFilesClick
       end
       object btnRemoveFiles: TToolButton
@@ -237,6 +242,7 @@ object frmInsertFiles: TfrmInsertFiles
         Caption = 'Remove'
         Enabled = False
         ImageIndex = 46
+        ImageName = 'icons8-delete-button'
         OnClick = btnRemoveFilesClick
       end
       object btnClearFiles: TToolButton
@@ -245,6 +251,7 @@ object frmInsertFiles: TfrmInsertFiles
         Caption = 'Clear'
         Enabled = False
         ImageIndex = 26
+        ImageName = 'icons8-close-button'
         OnClick = btnRemoveFilesClick
       end
     end

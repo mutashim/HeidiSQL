@@ -5,25 +5,29 @@ interface
 uses
   Windows, SysUtils, Classes, Graphics, Controls, Forms, Dialogs, StdCtrls, SynEdit, SynMemo,
   ExtCtrls,
-  dbconnection, mysql_structures, apphelpers, gnugettext;
+  dbconnection, dbstructures, apphelpers, gnugettext, Vcl.ComCtrls;
 
 type
   TFrame = TDBObjectEditor;
   TfrmView = class(TFrame)
-    editName: TEdit;
-    lblName: TLabel;
-    rgAlgorithm: TRadioGroup;
     SynMemoBody: TSynMemo;
     lblSelect: TLabel;
     btnDiscard: TButton;
     btnSave: TButton;
-    rgCheck: TRadioGroup;
     btnHelp: TButton;
     lblDisabledWhy: TLabel;
+    PageControlMain: TPageControl;
+    tabOptions: TTabSheet;
+    tabCreateCode: TTabSheet;
+    rgAlgorithm: TRadioGroup;
+    lblName: TLabel;
+    editName: TEdit;
     lblDefiner: TLabel;
     comboDefiner: TComboBox;
-    lblSecurity: TLabel;
     comboSecurity: TComboBox;
+    lblSecurity: TLabel;
+    rgCheck: TRadioGroup;
+    SynMemoCreateCode: TSynMemo;
     procedure btnHelpClick(Sender: TObject);
     procedure btnSaveClick(Sender: TObject);
     procedure btnDiscardClick(Sender: TObject);
@@ -31,6 +35,7 @@ type
     procedure comboDefinerDropDown(Sender: TObject);
   private
     { Private declarations }
+    function ComposeCreateStatement: TSQLBatch;
   public
     { Public declarations }
     constructor Create(AOwner: TComponent); override;
@@ -52,9 +57,10 @@ uses main;
 constructor TfrmView.Create(AOwner: TComponent);
 begin
   inherited;
-  TranslateComponent(Self);
   SynMemoBody.Highlighter := Mainform.SynSQLSynUsed;
   Mainform.SynCompletionProposal.AddEditor(SynMemoBody);
+  SynMemoCreateCode.Highlighter := Mainform.SynSQLSynUsed;
+  Mainform.SynCompletionProposal.AddEditor(SynMemoCreateCode);
   editName.MaxLength := NAME_LEN;
   comboSecurity.Items.Add('Definer');
   comboSecurity.Items.Add('Invoker');
@@ -77,7 +83,7 @@ begin
   if Obj.Name <> '' then begin
     // Edit mode
     editName.Text := Obj.Name;
-    Obj.Connection.ParseViewStructure(Obj.CreateCode, Obj, nil, Algorithm, Definer, SQLSecurity, CheckOption, SelectCode);
+    Obj.Connection.ParseViewStructure(Obj.CreateCode, Obj, Algorithm, Definer, SQLSecurity, CheckOption, SelectCode);
     comboDefiner.Text := Definer;
     rgAlgorithm.ItemIndex := rgAlgorithm.Items.IndexOf(Algorithm);
     rgCheck.ItemIndex := rgCheck.Items.IndexOf(CheckOption);
@@ -108,6 +114,17 @@ begin
     SynMemoBody.Text := 'SELECT ';
     lblDisabledWhy.Hide;
   end;
+
+  // Most clauses only supported by MySQL
+  comboDefiner.Enabled := comboDefiner.Enabled and Obj.Connection.Parameters.IsAnyMySQL;
+  lblDefiner.Enabled := comboDefiner.Enabled;
+  comboSecurity.Enabled := comboSecurity.Enabled and Obj.Connection.Parameters.IsAnyMySQL;
+  lblSecurity.Enabled := comboSecurity.Enabled;
+  rgAlgorithm.Enabled := rgAlgorithm.Enabled and Obj.Connection.Parameters.IsAnyMySQL;
+  rgCheck.Enabled := rgCheck.Enabled and Obj.Connection.Parameters.IsAnyMySQL;
+
+  // Update create code tab
+  Modification(Self);
   Modified := False;
   btnSave.Enabled := Modified;
   btnDiscard.Enabled := Modified;
@@ -119,7 +136,7 @@ end;
 procedure TfrmView.comboDefinerDropDown(Sender: TObject);
 begin
   // Populate definers from mysql.user
-  (Sender as TComboBox).Items.Assign(GetDefiners);
+  (Sender as TComboBox).Items.Assign(DBObject.Connection.AllUserHostCombinations);
 end;
 
 
@@ -151,44 +168,27 @@ end;
 
 function TfrmView.ApplyModifications: TModalResult;
 var
-  sql, viewname, renamed: String;
+  Batch: TSQLBatch;
+  Query: TSQLSentence;
 begin
   // Save changes
   Result := mrOk;
-  if DBObject.Name = '' then begin
-    sql := 'CREATE ';
-    viewname := editName.Text;
-  end else begin
-    sql := 'ALTER ';
-    viewname := DBObject.Name;
-  end;
-  viewname := DBObject.Connection.QuoteIdent(viewname);
-  if rgAlgorithm.Enabled and (rgAlgorithm.ItemIndex > -1) then
-    sql := sql + 'ALGORITHM = '+Uppercase(rgAlgorithm.Items[rgAlgorithm.ItemIndex])+' ';
-  if comboDefiner.Text <> '' then
-    sql := sql + 'DEFINER='+DBObject.Connection.QuoteIdent(comboDefiner.Text, True, '@')+' ';
-  if comboSecurity.Text <> '' then
-    sql := sql + 'SQL SECURITY ' + UpperCase(comboSecurity.Text)+' ';
-  sql := sql + 'VIEW ' + viewname+' AS '+SynMemoBody.Text+' ';
-  if rgCheck.Enabled and (rgCheck.ItemIndex > 0) then
-    sql := sql + 'WITH '+Uppercase(rgCheck.Items[rgCheck.ItemIndex])+' CHECK OPTION';
 
   try
-    DBObject.Connection.Query(sql);
-    // Probably rename view
-    if (DBObject.Name <> '') and (DBObject.Name <> editName.Text) then begin
-      renamed := DBObject.Connection.QuoteIdent(editName.Text);
-      DBObject.Connection.Query('RENAME TABLE '+viewname + ' TO '+renamed);
+    Batch := ComposeCreateStatement;
+    for Query in Batch do begin
+      DBObject.Connection.Query(Query.SQL);
     end;
+    Batch.Free;
     DBObject.Name := editName.Text;
-    DBObject.CreateCode := '';
+    DBObject.UnloadDetails;
     Mainform.UpdateEditorTab;
     Mainform.RefreshTree(DBObject);
     Modified := False;
     btnSave.Enabled := Modified;
     btnDiscard.Enabled := Modified;
   except
-    on E:EDatabaseError do begin
+    on E:EDbError do begin
       ErrorDialog(E.Message);
       Result := mrAbort;
     end;
@@ -197,10 +197,50 @@ end;
 
 
 procedure TfrmView.Modification(Sender: TObject);
+var
+  Batch: TSQLBatch;
 begin
   Modified := True;
   btnSave.Enabled := Modified and (editName.Text <> '');
   btnDiscard.Enabled := Modified;
+  // Update create code
+  Batch := ComposeCreateStatement;
+  SynMemoCreateCode.Text := Batch.SQL;
+  Batch.Free;
+end;
+
+
+function TfrmView.ComposeCreateStatement: TSQLBatch;
+var
+  sql, ViewName, RenameView: String;
+begin
+  // Create or Alter code
+  if DBObject.Name = '' then begin
+    sql := 'CREATE ';
+    ViewName := editName.Text;
+  end else begin
+    sql := 'ALTER ';
+    ViewName := DBObject.Name;
+  end;
+  ViewName := DBObject.Connection.QuoteIdent(ViewName);
+  if rgAlgorithm.Enabled and (rgAlgorithm.ItemIndex > -1) then
+    sql := sql + 'ALGORITHM = '+Uppercase(rgAlgorithm.Items[rgAlgorithm.ItemIndex])+' ';
+  if comboDefiner.Enabled and (comboDefiner.Text <> '') then
+    sql := sql + 'DEFINER='+DBObject.Connection.QuoteIdent(comboDefiner.Text, True, '@')+' ';
+  if comboSecurity.Enabled and (comboSecurity.Text <> '') then
+    sql := sql + 'SQL SECURITY ' + UpperCase(comboSecurity.Text)+' ';
+  sql := sql + 'VIEW ' + ViewName+' AS '+SynMemoBody.Text+' ';
+  if rgCheck.Enabled and (rgCheck.ItemIndex > 0) then
+    sql := sql + 'WITH '+Uppercase(rgCheck.Items[rgCheck.ItemIndex])+' CHECK OPTION';
+  sql := sql + ';' + sLineBreak;
+
+  if (DBObject.Name <> '') and (DBObject.Name <> editName.Text) then begin
+    RenameView := DBObject.Connection.QuoteIdent(editName.Text);
+    sql := sql + 'RENAME TABLE '+ViewName + ' TO '+RenameView + ';' + sLineBreak;
+  end;
+
+  Result := TSQLBatch.Create;
+  Result.SQL := Trim(SQL);
 end;
 
 

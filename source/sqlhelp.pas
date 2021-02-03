@@ -9,7 +9,7 @@ uses
   dbconnection, gnugettext;
 
 type
-  TfrmSQLhelp = class(TFormWithSizeGrip)
+  TfrmSQLhelp = class(TExtForm)
     URIOpenerDescription: TSynURIOpener;
     URIHighlighter: TSynURISyn;
     URIOpenerExample: TSynURIOpener;
@@ -54,6 +54,7 @@ type
 
   private
     { Private declarations }
+    FConnection: TDBConnection;
     FKeyword: String;
     FRootTopics: TDBQuery;
     function GetHelpResult(Node: PVirtualNode): TDBQuery;
@@ -89,15 +90,18 @@ begin
   Left := AppSettings.ReadInt(asSQLHelpWindowLeft);
   Width := AppSettings.ReadInt(asSQLHelpWindowWidth);
   Height := AppSettings.ReadInt(asSQLHelpWindowHeight);
+  MakeFullyVisible;
+
   pnlLeft.Width := AppSettings.ReadInt(asSQLHelpPnlLeftWidth);
   memoDescription.Height := AppSettings.ReadInt(asSQLHelpPnlRightTopHeight);
   Caption := DEFAULT_WINDOW_CAPTION;
   FixVT(treeTopics);
-  TranslateComponent(Self);
+  HasSizeGrip := True;
 
   treeTopics.Clear;
   FreeAndNil(FRootTopics);
-  FRootTopics := MainForm.ActiveConnection.GetResults('HELP '+esc('CONTENTS'));
+  FConnection := MainForm.ActiveConnection;
+  FRootTopics := FConnection.GetResults('HELP '+FConnection.EscapeString('CONTENTS'));
   treeTopics.RootNodeCount := FRootTopics.RecordCount;
 end;
 
@@ -128,7 +132,7 @@ begin
 
   if FKeyword <> '' then try
     Screen.Cursor := crHourglass;
-    Results := MainForm.ActiveConnection.GetResults('HELP '+esc(FKeyword));
+    Results := FConnection.GetResults('HELP '+FConnection.EscapeString(FKeyword));
     Caption := Caption + ' - ' + FKeyword;
     MemoDescription.Text := fixNewlines(Results.Col('description', True));
     MemoExample.Text := fixNewlines(Results.Col('example', True));
@@ -215,7 +219,7 @@ begin
   // Return number of children for folder
   VT := Sender as TVirtualStringTree;
   Results := VT.GetNodeData(Node);
-  Results^ := MainForm.ActiveConnection.GetResults('HELP '+esc(VT.Text[Node, VT.Header.MainColumn]));
+  Results^ := FConnection.GetResults('HELP '+FConnection.EscapeString(VT.Text[Node, VT.Header.MainColumn]));
   ChildCount := Results.RecordCount;
 end;
 
@@ -264,10 +268,10 @@ procedure TfrmSQLhelp.FormDestroy(Sender: TObject);
 begin
   AppSettings.WriteInt(asSQLHelpWindowLeft, Left );
   AppSettings.WriteInt(asSQLHelpWindowTop, Top );
-  AppSettings.WriteInt(asSQLHelpWindowWidth, Width );
-  AppSettings.WriteInt(asSQLHelpWindowHeight, Height );
-  AppSettings.WriteInt(asSQLHelpPnlLeftWidth, pnlLeft.Width );
-  AppSettings.WriteInt(asSQLHelpPnlRightTopHeight, memoDescription.Height );
+  AppSettings.WriteInt(asSQLHelpWindowWidth, Width);
+  AppSettings.WriteInt(asSQLHelpWindowHeight, Height);
+  AppSettings.WriteInt(asSQLHelpPnlLeftWidth, pnlLeft.Width);
+  AppSettings.WriteInt(asSQLHelpPnlRightTopHeight, memoDescription.Height);
   SqlHelpDialog := nil;
 end;
 
@@ -286,7 +290,7 @@ end;
 procedure TfrmSQLhelp.ButtonOnlinehelpClick(Sender: TObject);
 begin
   // Link/redirect to mysql.com for further help
-  ShellExec(APPDOMAIN + 'sqlhelp.php?mysqlversion='+inttostr(MainForm.ActiveConnection.ServerVersionInt)+
+  ShellExec(APPDOMAIN + 'sqlhelp.php?mysqlversion='+inttostr(FConnection.ServerVersionInt)+
     '&keyword='+EncodeURLParam(keyword));
 end;
 
@@ -311,7 +315,7 @@ begin
   FKeyword := Value;
   if FKeyword = '' then
     Exit;
-  Results := MainForm.ActiveConnection.GetResults('HELP '+esc(FKeyword));
+  Results := FConnection.GetResults('HELP '+FConnection.EscapeString(FKeyword));
   while not Results.Eof do begin
     if Results.Col('is_it_category', true) = 'N' then begin
       FKeyword := Results.Col('name');

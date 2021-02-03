@@ -7,7 +7,11 @@ object loaddataform: Tloaddataform
   Color = clBtnFace
   Constraints.MinHeight = 530
   Constraints.MinWidth = 525
-  ParentFont = True
+  Font.Charset = DEFAULT_CHARSET
+  Font.Color = clWindowText
+  Font.Height = -11
+  Font.Name = 'Tahoma'
+  Font.Style = []
   OldCreateOrder = False
   Position = poMainFormCenter
   OnClose = FormClose
@@ -351,11 +355,10 @@ object loaddataform: Tloaddataform
     object ToolBarColMove: TToolBar
       Left = 10
       Top = 91
-      Width = 58
+      Width = 87
       Height = 66
       Align = alNone
-      AutoSize = True
-      ButtonWidth = 58
+      ButtonWidth = 54
       Caption = 'ToolBarColMove'
       Images = MainForm.VirtualImageListMain
       List = True
@@ -369,6 +372,7 @@ object loaddataform: Tloaddataform
         Hint = 'Move up'
         Caption = 'Up'
         ImageIndex = 74
+        ImageName = 'icons8-sort-up'
         Wrap = True
         OnClick = btnColMoveClick
       end
@@ -378,6 +382,7 @@ object loaddataform: Tloaddataform
         Hint = 'Move down'
         Caption = 'Down'
         ImageIndex = 75
+        ImageName = 'icons8-caret-arrowhead-facing-down'
         Wrap = True
         OnClick = btnColMoveClick
       end
@@ -387,6 +392,7 @@ object loaddataform: Tloaddataform
         Hint = 'Select / Deselect all'
         Caption = 'All'
         ImageIndex = 128
+        ImageName = 'icons8-checked-checkbox-other'
         OnClick = btnCheckAllClick
       end
     end

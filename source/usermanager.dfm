@@ -8,7 +8,11 @@ object UserManagerForm: TUserManagerForm
   Color = clBtnFace
   Constraints.MinHeight = 350
   Constraints.MinWidth = 450
-  ParentFont = True
+  Font.Charset = DEFAULT_CHARSET
+  Font.Color = clWindowText
+  Font.Height = -11
+  Font.Name = 'Tahoma'
+  Font.Style = []
   OldCreateOrder = False
   Position = poMainFormCenter
   OnClose = FormClose
@@ -55,6 +59,7 @@ object UserManagerForm: TUserManagerForm
     Cancel = True
     Caption = 'Close'
     ImageIndex = 26
+    ImageName = 'icons8-close-button'
     Images = MainForm.VirtualImageListMain
     ModalResult = 2
     TabOrder = 4
@@ -68,6 +73,7 @@ object UserManagerForm: TUserManagerForm
     Caption = 'Save'
     Default = True
     ImageIndex = 10
+    ImageName = 'icons8-save-button-100'
     Images = MainForm.VirtualImageListMain
     TabOrder = 2
     OnClick = btnSaveClick
@@ -103,7 +109,8 @@ object UserManagerForm: TUserManagerForm
       Height = 275
       Align = alClient
       Header.AutoSizeIndex = 0
-      Header.Options = [hoAutoResize, hoColumnResize, hoDblClickResize, hoDrag, hoHotTrack, hoShowSortGlyphs, hoVisible]
+      Header.Options = [hoAutoResize, hoColumnResize, hoDblClickResize, hoDrag, hoHotTrack, hoShowSortGlyphs, hoVisible, hoDisableAnimatedResize, hoAutoResizeInclCaption]
+      Header.PopupMenu = MainForm.popupListHeader
       Header.SortColumn = 0
       Images = MainForm.VirtualImageListMain
       IncrementalSearch = isAll
@@ -151,6 +158,7 @@ object UserManagerForm: TUserManagerForm
         Top = 0
         Caption = 'Add'
         ImageIndex = 45
+        ImageName = 'icons8-add'
         OnClick = btnAddUserClick
       end
       object btnCloneUser: TToolButton
@@ -158,6 +166,7 @@ object UserManagerForm: TUserManagerForm
         Top = 0
         Caption = 'Clone'
         ImageIndex = 3
+        ImageName = 'icons8-copy-100'
         OnClick = btnAddUserClick
       end
       object btnDeleteUser: TToolButton
@@ -165,6 +174,7 @@ object UserManagerForm: TUserManagerForm
         Top = 0
         Caption = 'Delete'
         ImageIndex = 46
+        ImageName = 'icons8-delete-button'
         OnClick = btnDeleteUserClick
       end
     end
@@ -214,6 +224,7 @@ object UserManagerForm: TUserManagerForm
         Hint = 'Add object ...'
         Caption = 'Add object'
         ImageIndex = 45
+        ImageName = 'icons8-add'
         OnClick = btnAddObjectClick
       end
     end
@@ -549,6 +560,7 @@ object UserManagerForm: TUserManagerForm
     Anchors = [akRight, akBottom]
     Caption = 'Discard'
     ImageIndex = 40
+    ImageName = 'icons8-undo'
     Images = MainForm.VirtualImageListMain
     TabOrder = 3
     OnClick = btnDiscardClick

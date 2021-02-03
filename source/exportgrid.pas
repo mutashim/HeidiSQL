@@ -5,12 +5,12 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls, ExtCtrls, Menus, ComCtrls, VirtualTrees, SynExportHTML, gnugettext, ActnList,
-  extra_controls;
+  extra_controls, dbstructures, SynRegExpr;
 
 type
   TGridExportFormat = (efExcel, efCSV, efHTML, efXML, efSQLInsert, efSQLReplace, efSQLDeleteInsert, efLaTeX, efWiki, efPHPArray, efMarkDown, efJSON);
 
-  TfrmExportGrid = class(TFormWithSizeGrip)
+  TfrmExportGrid = class(TExtForm)
     btnOK: TButton;
     btnCancel: TButton;
     grpFormat: TRadioGroup;
@@ -50,6 +50,7 @@ type
     lblNull: TLabel;
     editNull: TButtonedEdit;
     btnSetClipboardDefaults: TButton;
+    chkRemoveLinebreaks: TCheckBox;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure CalcSize(Sender: TObject);
@@ -73,19 +74,24 @@ type
     FGrid: TVirtualStringTree;
     FRecentFiles: TStringList;
     FHiddenCopyMode: Boolean;
-    const FFormatToFileExtension: Array[TGridExportFormat] of String =
-      (('csv'), ('csv'), ('html'), ('xml'), ('sql'), ('sql'), ('sql'), ('LaTeX'), ('wiki'), ('php'), ('md'), ('json'));
-    const FFormatToDescription: Array[TGridExportFormat] of String =
-      (('Excel CSV'), ('Delimited text'), ('HTML table'), ('XML'), ('SQL INSERTs'), ('SQL REPLACEs'), ('SQL DELETEs/INSERTs'), ('LaTeX'), ('Wiki markup'), ('PHP Array'), ('Markdown Here'), ('JSON'));
     procedure SaveDialogTypeChange(Sender: TObject);
     function GetExportFormat: TGridExportFormat;
     procedure SetExportFormat(Value: TGridExportFormat);
     procedure SetExportFormatByFilename;
     procedure SelectRecentFile(Sender: TObject);
     procedure PutFilenamePlaceholder(Sender: TObject);
-    function EscapePHP(Text: String): String;
+    function FormatExcelCsv(Text, Encloser: String; DataType: TDBDatatype): String;
+    function FormatPhp(Text: String): String;
+    function FormatLatex(Text: String): String;
   public
     { Public declarations }
+    const FormatToFileExtension: Array[TGridExportFormat] of String =
+      (('csv'), ('csv'), ('html'), ('xml'), ('sql'), ('sql'), ('sql'), ('LaTeX'), ('wiki'), ('php'), ('md'), ('json'));
+    const FormatToDescription: Array[TGridExportFormat] of String =
+      (('Excel CSV'), ('Delimited text'), ('HTML table'), ('XML'), ('SQL INSERTs'), ('SQL REPLACEs'), ('SQL DELETEs/INSERTs'), ('LaTeX'), ('Wiki markup'), ('PHP Array'), ('Markdown Here'), ('JSON'));
+    const FormatToImageIndex: Array[TGridExportFormat] of Integer =
+      (49, 50, 32, 48, 201, 201, 201, 153, 154, 202, 199, 200);
+    const CopyAsActionPrefix = 'actCopyAs';
     property Grid: TVirtualStringTree read FGrid write FGrid;
     property ExportFormat: TGridExportFormat read GetExportFormat write SetExportFormat;
   end;
@@ -93,7 +99,7 @@ type
 
 implementation
 
-uses main, apphelpers, dbconnection, mysql_structures;
+uses main, apphelpers, dbconnection;
 
 {$R *.dfm}
 
@@ -102,8 +108,9 @@ uses main, apphelpers, dbconnection, mysql_structures;
 procedure TfrmExportGrid.FormCreate(Sender: TObject);
 var
   FormatDesc: String;
+  SenderName: String;
 begin
-  TranslateComponent(Self);
+  HasSizeGrip := True;
   Width := AppSettings.ReadInt(asGridExportWindowWidth);
   Height := AppSettings.ReadInt(asGridExportWindowHeight);
   editFilename.Text := AppSettings.ReadString(asGridExportFilename);
@@ -112,17 +119,19 @@ begin
   comboEncoding.Items.Delete(0); // Remove "Auto detect"
   comboEncoding.ItemIndex := AppSettings.ReadInt(asGridExportEncoding);
   grpFormat.Items.Clear;
-  for FormatDesc in FFormatToDescription do
+  for FormatDesc in FormatToDescription do
     grpFormat.Items.Add(FormatDesc);
-  FHiddenCopyMode := Owner = MainForm.actCopyRows;
+  SenderName := Owner.Name;
+  FHiddenCopyMode := SenderName.StartsWith(CopyAsActionPrefix);
 
   if FHiddenCopyMode then begin
     radioOutputCopyToClipboard.Checked := True;
-    grpFormat.ItemIndex := AppSettings.ReadInt(asGridExportClpFormat);
+    grpFormat.ItemIndex := Owner.Tag;
     grpSelection.ItemIndex := 0; // Always use selected cells in copy mode
     chkIncludeColumnNames.Checked := AppSettings.ReadBool(asGridExportClpColumnNames);
     chkIncludeAutoIncrement.Checked := AppSettings.ReadBool(asGridExportClpIncludeAutoInc);
     chkIncludeQuery.Checked := False; // Always off in copy mode
+    chkRemoveLinebreaks.Checked := AppSettings.ReadBool(asGridExportClpRemoveLinebreaks);
     FCSVSeparator := AppSettings.ReadString(asGridExportClpSeparator);
     FCSVEncloser := AppSettings.ReadString(asGridExportClpEncloser);
     FCSVTerminator := AppSettings.ReadString(asGridExportClpTerminator);
@@ -135,6 +144,7 @@ begin
     chkIncludeColumnNames.Checked := AppSettings.ReadBool(asGridExportColumnNames);
     chkIncludeAutoIncrement.Checked := AppSettings.ReadBool(asGridExportIncludeAutoInc);
     chkIncludeQuery.Checked := AppSettings.ReadBool(asGridExportIncludeQuery);
+    chkRemoveLinebreaks.Checked := AppSettings.ReadBool(asGridExportRemoveLinebreaks);
     FCSVSeparator := AppSettings.ReadString(asGridExportSeparator);
     FCSVEncloser := AppSettings.ReadString(asGridExportEncloser);
     FCSVTerminator := AppSettings.ReadString(asGridExportTerminator);
@@ -161,6 +171,7 @@ begin
       AppSettings.WriteBool(asGridExportColumnNames, chkIncludeColumnNames.Checked);
       AppSettings.WriteBool(asGridExportIncludeAutoInc, chkIncludeAutoIncrement.Checked);
       AppSettings.WriteBool(asGridExportIncludeQuery, chkIncludeQuery.Checked);
+      AppSettings.WriteBool(asGridExportRemoveLinebreaks, chkRemoveLinebreaks.Checked);
       AppSettings.WriteString(asGridExportSeparator, FCSVSeparator);
       AppSettings.WriteString(asGridExportEncloser, FCSVEncloser);
       AppSettings.WriteString(asGridExportTerminator, FCSVTerminator);
@@ -250,8 +261,6 @@ begin
     editFilename.Font.Color := GetThemeColor(clGrayText);
   comboEncoding.Enabled := radioOutputFile.Checked;
   lblEncoding.Enabled := radioOutputFile.Checked;
-  if ExportFormat = efExcel then
-    comboEncoding.ItemIndex := comboEncoding.Items.IndexOf('ANSI');
 end;
 
 
@@ -276,7 +285,7 @@ begin
   if radioOutputFile.Checked then begin
     Filename := ExtractFilePath(editFilename.Text) +
       ExtractBaseFileName(editFilename.Text) +
-      '.' + FFormatToFileExtension[ExportFormat];
+      '.' + FormatToFileExtension[ExportFormat];
     if CompareText(Filename, editFilename.Text) <> 0 then
       editFilename.Text := Filename;
   end;
@@ -292,9 +301,9 @@ begin
   // Set format by file extension
   ext := LowerCase(Copy(ExtractFileExt(editFilename.Text), 2, 10));
   for efrm :=Low(TGridExportFormat) to High(TGridExportFormat) do begin
-    if ext = FFormatToFileExtension[ExportFormat] then
+    if ext = FormatToFileExtension[ExportFormat] then
       break;
-    if ext = FFormatToFileExtension[efrm] then begin
+    if ext = FormatToFileExtension[efrm] then begin
       ExportFormat := efrm;
       break;
     end;
@@ -321,7 +330,7 @@ begin
   Dialog.FileName := ExtractBaseFileName(Filename);
   Dialog.Filter := '';
   for ef:=Low(TGridExportFormat) to High(TGridExportFormat) do
-    Dialog.Filter := Dialog.Filter + FFormatToDescription[ef] + ' (*.'+FFormatToFileExtension[ef]+')|*.'+FFormatToFileExtension[ef]+'|';
+    Dialog.Filter := Dialog.Filter + FormatToDescription[ef] + ' (*.'+FormatToFileExtension[ef]+')|*.'+FormatToFileExtension[ef]+'|';
   Dialog.Filter := Dialog.Filter + _('All files')+' (*.*)|*.*';
   Dialog.OnTypeChange := SaveDialogTypeChange;
   Dialog.FilterIndex := grpFormat.ItemIndex+1;
@@ -391,9 +400,9 @@ procedure TfrmExportGrid.btnSetClipboardDefaultsClick(Sender: TObject);
 begin
   // Store copy-to-clipboard settings
   AppSettings.ResetPath;
-  AppSettings.WriteInt(asGridExportClpFormat, grpFormat.ItemIndex);
   AppSettings.WriteBool(asGridExportClpColumnNames, chkIncludeColumnNames.Checked);
   AppSettings.WriteBool(asGridExportClpIncludeAutoInc, chkIncludeAutoIncrement.Checked);
+  AppSettings.WriteBool(asGridExportRemoveLinebreaks, chkRemoveLinebreaks.Checked);
   AppSettings.WriteString(asGridExportClpSeparator, FCSVSeparator);
   AppSettings.WriteString(asGridExportClpEncloser, FCSVEncloser);
   AppSettings.WriteString(asGridExportClpTerminator, FCSVTerminator);
@@ -408,7 +417,7 @@ var
   Node: PVirtualNode;
   Col, ExcludeCol: TColumnIndex;
   RowNum: PInt64;
-  SelectionSize, AllSize: Int64;
+  SelectionSize, AllSize, RowsCalculated: Int64;
 begin
   GridData := Mainform.GridResult(Grid);
   AllSize := 0;
@@ -419,6 +428,7 @@ begin
     ExcludeCol := GridData.AutoIncrementColumn;
 
   Node := GetNextNode(Grid, nil, False);
+  RowsCalculated := 0;
   while Assigned(Node) do begin
     RowNum := Grid.GetNodeData(Node);
     GridData.RecNo := RowNum^;
@@ -431,7 +441,14 @@ begin
       end;
       Col := Grid.Header.Columns.GetNextVisibleColumn(Col);
     end;
+    // Performance: use first rows only, and interpolate the rest, see issue #804
+    Inc(RowsCalculated);
+    if RowsCalculated >= 1000 then
+      Break;
     Node := GetNextNode(Grid, Node, False);
+  end;
+  if GridData.RecordCount > RowsCalculated then begin
+    AllSize := Round(AllSize / RowsCalculated * GridData.RecordCount);
   end;
   grpSelection.Items[0] := f_('Selection (%s rows, %s)', [FormatNumber(Grid.SelectedCount), FormatByteNumber(SelectionSize)]);
   grpSelection.Items[1] := f_('Complete (%s rows, %s)', [FormatNumber(Grid.RootNodeCount), FormatByteNumber(AllSize)]);
@@ -467,7 +484,7 @@ begin
   Dialog := Sender as TSaveDialog;
   for ef:=Low(TGridExportFormat) to High(TGridExportFormat) do begin
     if Dialog.FilterIndex = Integer(ef)+1 then
-      Dialog.DefaultExt := FFormatToFileExtension[ef];
+      Dialog.DefaultExt := FormatToFileExtension[ef];
   end;
 end;
 
@@ -494,7 +511,19 @@ begin
 end;
 
 
-function TfrmExportGrid.EscapePHP(Text: String): String;
+function TfrmExportGrid.FormatExcelCsv(Text, Encloser: String; DataType: TDBDatatype): String;
+begin
+  Result := Text;
+  // Escape encloser characters inside data per de-facto CSV.
+  if not Encloser.IsEmpty then
+    Result := StringReplace(Result, Encloser, Encloser+Encloser, [rfReplaceAll]);
+  if DataType.Category = dtcTemporal then begin
+    Result := ReplaceRegExpr('\.(\d+)$', Result, FormatSettings.DecimalSeparator + '$1', True);
+  end;
+end;
+
+
+function TfrmExportGrid.FormatPhp(Text: String): String;
 begin
   // String escaping for PHP output. Incompatible to TDBConnection.EscapeString.
   Result := StringReplace(Text, '\', '\\', [rfReplaceAll]);
@@ -503,6 +532,22 @@ begin
   Result := StringReplace(Result, #9, '\t', [rfReplaceAll]);
   Result := StringReplace(Result, '"', '\"', [rfReplaceAll]);
   Result := '"' + Result + '"';
+end;
+
+
+function TfrmExportGrid.FormatLatex(Text: String): String;
+var
+  TextChr: Char;
+const
+  NeedBackslash: TSysCharset = ['_', '$', '%', '&'];
+begin
+  // String escaping for LaTeX output. Mostly uses backslash. Probably incomplete.
+  // See pm from H. Flick
+  // See https://tex.stackexchange.com/a/301984
+  Result := Text;
+  for TextChr in NeedBackslash do begin
+    Result := StringReplace(Result, TextChr, '\'+TextChr, [rfReplaceAll]);
+  end;
 end;
 
 
@@ -520,6 +565,7 @@ var
   S: TStringStream;
   Exporter: TSynExporterHTML;
   Encoding: TEncoding;
+  Bom: TBytes;
 begin
   Filename := GetOutputFilename(editFilename.Text, MainForm.ActiveDbObj);
 
@@ -543,7 +589,11 @@ begin
     else
       NodeCount := Grid.RootNodeCount;
     MainForm.EnableProgress(NodeCount);
-    TableName := BestTableName(GridData);
+    try
+      TableName := GridData.TableName;
+    except
+      TableName := _('UnknownTable');
+    end;
     ExcludeCol := NoColumn;
     if (not chkIncludeAutoIncrement.Checked) or (not chkIncludeAutoIncrement.Enabled) then
       ExcludeCol := GridData.AutoIncrementColumn;
@@ -560,7 +610,17 @@ begin
       for i:=FRecentFiles.Count-1 downto 10 do
         FRecentFiles.Delete(i);
     end;
+
+    // Prepare stream
+    // Note that TStringStream + TEncoding.UTF8 do not write a BOM (which is nice),
+    // although it should do so according to TUTF8Encoding.GetPreamble.
+    // Now, only newer Excel versions need that BOM, so we add it explicitly here
     S := TStringStream.Create(Header, Encoding);
+    if (ExportFormat = efExcel) and (Encoding = TEncoding.UTF8) and radioOutputFile.Checked then begin
+      Bom := TBytes.Create($EF, $BB, $BF);
+      S.Write(Bom, 3);
+    end;
+
     Header := '';
     case ExportFormat of
       efHTML: begin
@@ -661,7 +721,7 @@ begin
           Col := Grid.Header.Columns.GetFirstVisibleColumn;
           while Col > NoColumn do begin
             if Col <> ExcludeCol then
-              Header := Header + Grid.Header.Columns[Col].Text + Separator;
+              Header := Header + FormatLatex(Grid.Header.Columns[Col].Text) + Separator;
             Col := Grid.Header.Columns.GetNextVisibleColumn(Col);
           end;
           Delete(Header, Length(Header)-Length(Separator)+1, Length(Separator));
@@ -731,9 +791,9 @@ begin
         // JavaScript Object Notation
         Header := '{' + CRLF;
         if chkIncludeQuery.Checked then
-          Header := Header + #9 + '"query": '+EscapePHP(GridData.SQL)+',' + CRLF
+          Header := Header + #9 + '"query": '+FormatPhp(GridData.SQL)+',' + CRLF
         else
-          Header := Header + #9 + '"table": '+EscapePHP(TableName)+',' + CRLF ;
+          Header := Header + #9 + '"table": '+FormatPhp(TableName)+',' + CRLF ;
         Header := Header + #9 + '"rows":' + CRLF + #9 + '[';
       end;
 
@@ -802,17 +862,29 @@ begin
         else tmp := '';
       end;
 
+      // Row contents
       Col := Grid.Header.Columns.GetFirstVisibleColumn;
       while Col > NoColumn do begin
         if Col <> ExcludeCol then begin
-          if (GridData.DataType(Col).Category in [dtcBinary, dtcSpatial]) and (not Mainform.actBlobAsText.Checked) then
-            Data := GridData.HexValue(Col)
-          else
+          if (GridData.DataType(Col).Category in [dtcBinary, dtcSpatial])
+            and (not Mainform.actBlobAsText.Checked) then begin
+            Data := GridData.HexValue(Col);
+          end else begin
             Data := GridData.Col(Col);
+          end;
+
           // Keep formatted numeric values
           if (GridData.DataType(Col).Category in [dtcInteger, dtcReal])
-            and (ExportFormat in [efExcel, efHTML, efMarkDown]) then
-              Data := FormatNumber(Data, False);
+            and (ExportFormat in [efExcel, efHTML, efMarkDown]) then begin
+            Data := FormatNumber(Data, False);
+          end;
+
+          // Remove linebreaks, see #474
+          if chkRemoveLinebreaks.Checked then begin
+            Data := StringReplace(Data, #13#10, ' ', [rfReplaceAll]);
+            Data := StringReplace(Data, #13, ' ', [rfReplaceAll]);
+            Data := StringReplace(Data, #10, ' ', [rfReplaceAll]);
+          end;
 
           case ExportFormat of
             efHTML: begin
@@ -821,13 +893,31 @@ begin
               tmp := tmp + '          <td class="col' + IntToStr(Col) + '">' + Data + '</td>' + CRLF;
             end;
 
-            efExcel, efCSV, efLaTeX, efWiki, efMarkDown: begin
-              // Escape encloser characters inside data per de-facto CSV.
-              Data := StringReplace(Data, Encloser, Encloser+Encloser, [rfReplaceAll]);
-              if GridData.IsNull(Col) and (ExportFormat in [efExcel, efCSV, efMarkDown]) then
+            efExcel, efCSV: begin
+              if GridData.IsNull(Col) then
                 Data := editNull.Text
-              else
+              else begin
+                Data := FormatExcelCsv(Data, Encloser, GridData.DataType(Col));
                 Data := Encloser + Data + Encloser;
+              end;
+              tmp := tmp + Data + Separator;
+            end;
+
+            efLaTeX: begin
+              Data := FormatLatex(Data);
+              if (not GridData.IsNull(Col)) and (GridData.DataType(Col).Category in [dtcInteger, dtcReal]) then
+                // Special encloser for numeric values, see https://www.heidisql.com/forum.php?t=36530
+                Data := '$' + Data + '$';
+              tmp := tmp + Data + Separator;
+            end;
+
+            efWiki: begin
+              tmp := tmp + Data + Separator;
+            end;
+
+            efMarkDown: begin
+              if GridData.IsNull(Col) then
+                Data := editNull.Text;
               tmp := tmp + Data + Separator;
             end;
 
@@ -850,14 +940,14 @@ begin
                 Data := ''
               else if GridData.IsNull(Col) then
                 Data := 'NULL'
-              else if (GridData.DataType(Col).Index = dtBit) and GridData.Connection.Parameters.IsMySQL then
-                Data := 'b' + esc(Data)
+              else if (GridData.DataType(Col).Index = dtBit) and GridData.Connection.Parameters.IsAnyMySQL then
+                Data := 'b' + GridData.Connection.EscapeString(Data)
               else if (GridData.DataType(Col).Category in [dtcText, dtcTemporal, dtcOther])
                 or ((GridData.DataType(Col).Category in [dtcBinary, dtcSpatial]) and Mainform.actBlobAsText.Checked)
                 then
-                Data := esc(Data)
+                Data := GridData.Connection.EscapeString(Data)
               else if Data = '' then
-                Data := esc(Data);
+                Data := GridData.Connection.EscapeString(Data);
               if not Data.IsEmpty then
                 tmp := tmp + Data + ', ';
             end;
@@ -872,11 +962,11 @@ begin
                   Data := UnformatNumber(Data);
                 end;
                 else
-                  Data := EscapePHP(Data);
+                  Data := FormatPhp(Data);
               end;
 
               if chkIncludeColumnNames.Checked then
-                tmp := tmp + #9#9 + EscapePHP(Grid.Header.Columns[Col].Text) + ' => ' + Data + ','+CRLF
+                tmp := tmp + #9#9 + FormatPhp(Grid.Header.Columns[Col].Text) + ' => ' + Data + ','+CRLF
               else
                 tmp := tmp + #9#9 + Data + ','+CRLF;
             end;
@@ -884,7 +974,7 @@ begin
             efJSON: begin
               tmp := tmp + #9#9#9;
               if chkIncludeColumnNames.Checked then
-                tmp := tmp + EscapePHP(Grid.Header.Columns[Col].Text) + ': ';
+                tmp := tmp + FormatPhp(Grid.Header.Columns[Col].Text) + ': ';
               if GridData.IsNull(Col) then
                 tmp := tmp + 'null,' +CRLF
               else begin
@@ -892,7 +982,7 @@ begin
                   dtcInteger, dtcReal:
                     tmp := tmp + Data;
                   else
-                    tmp := tmp + EscapePHP(Data)
+                    tmp := tmp + FormatPhp(Data)
                 end;
                 tmp := tmp + ',' + CRLF;
               end;
@@ -1004,7 +1094,7 @@ begin
 
   except
     // Whole export code wrapped here
-    on E:EDatabaseError do begin
+    on E:EDbError do begin
       Screen.Cursor := crDefault;
       ErrorDialog(E.Message);
     end

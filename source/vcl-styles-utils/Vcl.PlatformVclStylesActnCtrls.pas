@@ -15,7 +15,7 @@
 // The Original Code is Vcl.PlatformVclStylesActnCtrls                                              
 //                                                                                                  
 // The Initial Developer of the Original Code is Rodrigo Ruz V.                                     
-// Portions created by Rodrigo Ruz V. are Copyright (C) 2012-2016 Rodrigo Ruz V.
+// Portions created by Rodrigo Ruz V. are Copyright (C) 2012-2020 Rodrigo Ruz V.
 // All Rights Reserved.                                                                             
 //                                                                                                  
 //**************************************************************************************************
@@ -52,6 +52,7 @@ uses
   Vcl.ActnCtrls,
   Vcl.ThemedActnCtrls,
   Vcl.Forms,
+  Vcl.Controls,
   Vcl.ListActns,
   Vcl.ActnColorMaps,
   Vcl.Themes,
@@ -251,10 +252,7 @@ var
   LFormats: TTextFormat;
   LColor: TColor;
   LDetails: TThemedElementDetails;
-  //LNativeStyle : TCustomStyleServices;
 begin
-  //LNativeStyle:=TStyleManager.SystemStyle;
-
   LFormats := TTextFormatFlags(Flags);
   if Selected and Enabled then
   begin
@@ -271,7 +269,6 @@ begin
   LCaption := Text;
   if (tfCalcRect in LFormats) and ( (LCaption = '') or (LCaption[1] = cHotkeyPrefix) and (LCaption[2] = #0) ) then
     LCaption := LCaption + ' ';
-
 
 
   //LNativeStyle.DrawText(DC, LDetails, LCaption, Rect, LFormats, LColor);   //doesn't work when the windows classic theme is applied in the OS
@@ -321,10 +318,7 @@ var
   LFormats: TTextFormat;
   LColor: TColor;
   LDetails: TThemedElementDetails;
-  //LNativeStyle : TCustomStyleServices;
 begin
-  //LNativeStyle:=TStyleManager.SystemStyle;
-
   LFormats := TTextFormatFlags(Flags);
   if Enabled then
     LDetails := StyleServices.GetElementDetails(MenuStates[Selected or MouseInControl or ActionBar.DesignMode])
@@ -368,11 +362,9 @@ begin
   if Parent is TCustomActionMainMenuBar then
     if not TCustomActionMainMenuBar(Parent).PersistentHotkeys then
       Text := StripHotkey(Text);
-   //  VER barra memnu Paint
   LRect := ARect;
   Inc(LRect.Left);
   Canvas.Font := Screen.MenuFont;
-  //LRect.Top:=-10;
   NativeDrawText(Text, LRect, Flags or DT_CALCRECT or DT_NOCLIP);
   NativeDrawText(Text, LRect, Flags);
 end;

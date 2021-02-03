@@ -11,11 +11,12 @@ interface
 uses
   Windows, SysUtils, Classes, Controls, Forms, StdCtrls, ComCtrls, Buttons, Dialogs, StdActns,
   VirtualTrees, ExtCtrls, Graphics, SynRegExpr, Math, Generics.Collections, extra_controls,
-  dbconnection, apphelpers, Menus, gnugettext, DateUtils, System.Zip, System.UITypes, StrUtils, Messages;
+  dbconnection, apphelpers, Menus, gnugettext, DateUtils, System.Zip, System.UITypes, StrUtils, Messages,
+  SynEdit, SynMemo;
 
 type
   TToolMode = (tmMaintenance, tmFind, tmSQLExport, tmBulkTableEdit);
-  TfrmTableTools = class(TFormWithSizeGrip)
+  TfrmTableTools = class(TExtForm)
     btnCloseOrCancel: TButton;
     pnlTop: TPanel;
     TreeObjects: TVirtualStringTree;
@@ -36,7 +37,6 @@ type
     btnHelpMaintenance: TButton;
     tabFind: TTabSheet;
     lblFindText: TLabel;
-    memoFindText: TMemo;
     comboDataTypes: TComboBox;
     lblDataTypes: TLabel;
     tabSQLexport: TTabSheet;
@@ -82,10 +82,12 @@ type
     menuExportRemoveAutoIncrement: TMenuItem;
     comboMatchType: TComboBox;
     lblMatchType: TLabel;
-    pnlDpiHelperMaintenance: TPanel;
-    pnlDpiHelperFind: TPanel;
-    pnlDpiHelperExport: TPanel;
-    pnlDpiHelperTableEdit: TPanel;
+    menuExportRemoveDefiner: TMenuItem;
+    tabsTextType: TPageControl;
+    tabSimpleText: TTabSheet;
+    tabSQL: TTabSheet;
+    memoFindText: TMemo;
+    SynMemoFindText: TSynMemo;
     procedure FormDestroy(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormShow(Sender: TObject);
@@ -104,6 +106,7 @@ type
     procedure ResultGridGetText(Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex;
       TextType: TVSTTextType; var CellText: String);
     procedure TreeObjectsChecked(Sender: TBaseVirtualTree; Node: PVirtualNode);
+    procedure FillTargetDatabases;
     procedure ResultGridHeaderClick(Sender: TVTHeader; HitInfo: TVTHeaderHitInfo);
     procedure ResultGridCompareNodes(Sender: TBaseVirtualTree; Node1, Node2: PVirtualNode;
       Column: TColumnIndex; var Result: Integer);
@@ -170,13 +173,14 @@ type
 
 implementation
 
-uses main, mysql_structures;
+uses main, dbstructures;
 
 const
   STRSKIPPED: String = 'Skipped - ';
   EXPORT_FILE_FOOTER = '/*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '''') */;'+CRLF+
-    '/*!40014 SET FOREIGN_KEY_CHECKS=IF(@OLD_FOREIGN_KEY_CHECKS IS NULL, 1, @OLD_FOREIGN_KEY_CHECKS) */;'+CRLF+
-    '/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;'+CRLF;
+    '/*!40014 SET FOREIGN_KEY_CHECKS=IFNULL(@OLD_FOREIGN_KEY_CHECKS, 1) */;'+CRLF+
+    '/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;'+CRLF+
+    '/*!40111 SET SQL_NOTES=IFNULL(@OLD_SQL_NOTES, 1) */;'+CRLF;
 
 var
   OUTPUT_FILE,
@@ -225,8 +229,7 @@ var
   dt: TListNodeType;
   Obj: TDBObject;
 begin
-  TranslateComponent(Self);
-  FixDropDownButtons(Self);
+  HasSizeGrip := True;
   OUTPUT_FILE := _('Single .sql file');
   OUTPUT_FILE_COMPRESSED := _('ZIP compressed .sql file');
   OUTPUT_CLIPBOARD := _('Clipboard');
@@ -246,6 +249,8 @@ begin
 
   // Find text tab
   memoFindText.Text := AppSettings.ReadString(asTableToolsFindText);
+  SynMemoFindText.Text := AppSettings.ReadString(asTableToolsFindSQL);
+  tabsTextType.ActivePageIndex := AppSettings.ReadInt(asTableToolsFindTextTab);
   comboDatatypes.Items.Add(_('All data types'));
   for dtc:=Low(DatatypeCategories) to High(DatatypeCategories) do
     comboDatatypes.Items.Add(DatatypeCategories[dtc].Name);
@@ -261,6 +266,7 @@ begin
   updownInsertSize.Position := AppSettings.ReadInt(asExportSQLDataInsertSize);
   menuExportAddComments.Checked := AppSettings.ReadBool(asExportSQLAddComments);
   menuExportRemoveAutoIncrement.Checked := AppSettings.ReadBool(asExportSQLRemoveAutoIncrement);
+  menuExportRemoveDefiner.Checked := AppSettings.ReadBool(asExportSQLRemoveDefiner);
   // Add hardcoded output options and session names from registry
   comboExportOutputType.Items.Text :=
     OUTPUT_FILE + CRLF +
@@ -303,8 +309,8 @@ end;
 procedure TfrmTableTools.FormDestroy(Sender: TObject);
 begin
   // Save GUI setup
-  AppSettings.WriteInt(asTableToolsWindowWidth, Width );
-  AppSettings.WriteInt(asTableToolsWindowHeight, Height );
+  AppSettings.WriteInt(asTableToolsWindowWidth, Width);
+  AppSettings.WriteInt(asTableToolsWindowHeight, Height);
   AppSettings.WriteInt(asTableToolsTreeWidth, TreeObjects.Width);
 end;
 
@@ -372,6 +378,8 @@ begin
   if comboBulkTableEditCharset.Items.Count > 0 then
     comboBulkTableEditCharset.ItemIndex := 0;
 
+  MainForm.SetupSynEditors;
+  MainForm.SynCompletionProposal.AddEditor(SynMemoFindText);
   ValidateControls(Sender);
 end;
 
@@ -392,7 +400,9 @@ var
 begin
   case ToolMode of
     tmFind: begin
+      AppSettings.WriteInt(asTableToolsFindTextTab, tabsTextType.ActivePageIndex);
       AppSettings.WriteString(asTableToolsFindText, memoFindText.Text);
+      AppSettings.WriteString(asTableToolsFindSQL, SynMemoFindText.Text);
       AppSettings.WriteInt(asTableToolsDatatype, comboDatatypes.ItemIndex);
       AppSettings.WriteBool(asTableToolsFindCaseSensitive, chkCaseSensitive.Checked);
       AppSettings.WriteInt(asTableToolsFindMatchType, comboMatchType.ItemIndex);
@@ -406,6 +416,7 @@ begin
         AppSettings.WriteInt(asExportSQLDataInsertSize, updownInsertSize.Position);
       AppSettings.WriteBool(asExportSQLAddComments, menuExportAddComments.Checked);
       AppSettings.WriteBool(asExportSQLRemoveAutoIncrement, menuExportRemoveAutoIncrement.Checked);
+      AppSettings.WriteBool(asExportSQLRemoveDefiner, menuExportRemoveDefiner.Checked);
 
       if not StartsStr(OUTPUT_SERVER, comboExportOutputType.Text) then
         AppSettings.WriteInt(asExportSQLOutput, comboExportOutputType.ItemIndex);
@@ -446,10 +457,11 @@ end;
 
 procedure TfrmTableTools.ValidateControls(Sender: TObject);
 var
-  SomeChecked, OptionChecked: Boolean;
+  SomeChecked, OptionChecked, FindModeSQL: Boolean;
   op: String;
   i: Integer;
 begin
+  // Fired after various user clicks, and also on implicit child node checking
   SomeChecked := TreeObjects.CheckedCount > 0;
   btnSeeResults.Visible := tabsTools.ActivePage = tabFind;
   lblCheckedSize.Caption := f_('Selected objects size: %s', [FormatByteNumber(FObjectSizes)]);
@@ -472,7 +484,11 @@ begin
     end;
   end else if tabsTools.ActivePage = tabFind then begin
     btnExecute.Caption := _('Find');
-    btnExecute.Enabled := SomeChecked and (memoFindText.Text <> '');
+    btnExecute.Enabled := SomeChecked;
+    FindModeSQL := tabsTextType.ActivePage = tabSQL;
+    chkCaseSensitive.Enabled := not FindModeSQL;
+    lblMatchType.Enabled := not FindModeSQL;
+    comboMatchType.Enabled := not FindModeSQL;
     // Enable "See results" button if there were results
     btnSeeResults.Enabled := False;
     if Assigned(FResults) then for i:=0 to FResults.Count-1 do begin
@@ -524,7 +540,32 @@ begin
     Inc(FObjectSizes, ObjSize)
   else
     Dec(FObjectSizes, ObjSize);
+  if Obj.NodeType = lntDb then
+    FillTargetDatabases;
   ValidateControls(Sender);
+end;
+
+
+procedure TfrmTableTools.FillTargetDatabases;
+var
+  SessionNode, DBNode: PVirtualNode;
+  OldSelected: String;
+begin
+  // Add unchecked databases
+  if comboExportOutputType.Text <> OUTPUT_DB then
+    Exit;
+  OldSelected := comboExportOutputTarget.Text;
+  comboExportOutputTarget.Items.Clear;
+  SessionNode := MainForm.GetRootNode(TreeObjects, MainForm.ActiveConnection);
+  DBNode := TreeObjects.GetFirstChild(SessionNode);
+  while Assigned(DBNode) do begin
+    if not (DBNode.CheckState in CheckedStates) then
+      comboExportOutputTarget.Items.Add(TreeObjects.Text[DBNode, 0]);
+    DBNode := TreeObjects.GetNextSibling(DBNode);
+  end;
+  comboExportOutputTarget.ItemIndex := comboExportOutputTarget.Items.IndexOf(OldSelected);
+  if comboExportOutputTarget.ItemIndex = -1 then
+    comboExportOutputTarget.ItemIndex := comboExportOutputTarget.Items.IndexOf(AppSettings.ReadString(asExportSQLDatabase));
 end;
 
 
@@ -621,7 +662,7 @@ var
         tmBulkTableEdit: DoBulkTableEdit(DBObj);
       end;
     except
-      on E:EDatabaseError do begin
+      on E:EDbError do begin
         // The above SQL can easily throw an exception, e.g. if a table is corrupted.
         // In such cases we create a dummy row, including the error message
         AddNotes(DBObj, 'error', E.Message);
@@ -748,9 +789,12 @@ begin
   Conn := Mainform.ActiveConnection;
 
   if Assigned(ExportStream) then begin
+    // For output to file or directory:
     Output(EXPORT_FILE_FOOTER, False, True, False, False, False);
+    // For direct output to database or server:
+    Output('/*!40111 SET SQL_NOTES=IFNULL(@OLD_SQL_NOTES, 1) */', True, False, False, True, True);
     Output('/*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '''') */', True, False, False, True, True);
-    Output('/*!40014 SET FOREIGN_KEY_CHECKS=IF(@OLD_FOREIGN_KEY_CHECKS IS NULL, 1, @OLD_FOREIGN_KEY_CHECKS) */', True, False, False, True, True);
+    Output('/*!40014 SET FOREIGN_KEY_CHECKS=IFNULL(@OLD_FOREIGN_KEY_CHECKS, 1) */', True, False, False, True, True);
     if comboExportOutputType.Text = OUTPUT_CLIPBOARD then
       StreamToClipboard(ExportStream, nil, false);
 
@@ -824,8 +868,13 @@ procedure TfrmTableTools.DoFind(DBObj: TDBObject);
 var
   Columns: TTableColumnList;
   Col: TTableColumn;
-  SQL, Dummy, Column, RoutineDefinitionColumn, RoutineSchemaColumn, FindText, FindTextJokers: String;
+  SQL, Column, RoutineDefinitionColumn, RoutineSchemaColumn, FindText, FindTextJokers: String;
   IsRegExp: Boolean;
+
+  function esc(Value: String): String;
+  begin
+    Result := DBObj.Connection.EscapeString(Value);
+  end;
 begin
   FFindSeeResultSQL.Add('');
 
@@ -843,15 +892,21 @@ begin
     FindText := LowerCase(FindText);
     FindTextJokers := LowerCase(FindTextJokers);
     RoutineDefinitionColumn := 'LOWER('+RoutineDefinitionColumn+')';
+    if DBObj.Connection.Parameters.IsAnySQLite then begin
+      DBObj.Connection.Query('PRAGMA case_sensitive_like=FALSE');
+    end;
+  end else begin
+    if DBObj.Connection.Parameters.IsAnySQLite then begin
+      DBObj.Connection.Query('PRAGMA case_sensitive_like=TRUE');
+    end;
   end;
   RoutineSchemaColumn := 'routine_schema';
-  if DBObj.Connection.Parameters.IsMSSQL then
+  if DBObj.Connection.Parameters.IsAnyMSSQL then
     RoutineSchemaColumn := 'routine_catalog';
 
   Columns := TTableColumnList.Create(True);
   case DBObj.NodeType of
-    lntTable: DBObj.Connection.ParseTableStructure(DBObj.CreateCode, Columns, nil, nil);
-    lntView: DBObj.Connection.ParseViewStructure(DBObj.CreateCode, DBObj, Columns, Dummy, Dummy, Dummy, Dummy, Dummy);
+    lntTable, lntView: Columns := DBObj.TableColumns;
     lntProcedure, lntFunction: ;
     // TODO: Triggers + Events
     else AddNotes(DBObj, STRSKIPPED+'a '+LowerCase(DBObj.ObjType)+' does not contain rows.', '');
@@ -864,7 +919,10 @@ begin
           Column := DBObj.Connection.QuoteIdent(Col.Name);
           if (comboDatatypes.ItemIndex = 0) or (Integer(Col.DataType.Category) = comboDatatypes.ItemIndex-1) then begin
 
-            if (Col.DataType.Category in [dtcInteger, dtcReal]) and (comboMatchType.ItemIndex=1) then begin
+            if tabsTextType.ActivePage = tabSQL then begin
+              SQL := SQL + Column + ' ' + SynMemoFindText.Text + ' OR ';
+
+            end else if (Col.DataType.Category in [dtcInteger, dtcReal]) and (comboMatchType.ItemIndex=1) then begin
               // Search numbers
               SQL := SQL + Column + '=' + UnformatNumber(FindText) + ' OR ';
 
@@ -885,6 +943,12 @@ begin
                   else
                     SQL := SQL + 'CAST(' + Column + ' AS TEXT) LIKE ' + esc(FindTextJokers) + ' OR ';
                 end;
+                ngSQLite: begin
+                  if IsRegExp then
+                    SQL := SQL + Column + ' REGEXP ' + esc(FindText) + ' OR '
+                  else
+                    SQL := SQL + Column + ' LIKE ' + esc(FindTextJokers) + ' OR ';
+                end;
               end;
 
             end else begin
@@ -903,7 +967,13 @@ begin
                   if IsRegExp then
                     SQL := SQL + 'LOWER(CAST('+Column+' AS TEXT)) SIMILAR TO ' + esc(FindTextJokers) + ' OR '
                   else
-                    SQL := SQL + 'LOWER(CAST('+Column+' AS TEXT)) LIKE ' + esc(FindTextJokers) + ' OR ';
+                    SQL := SQL + 'CAST('+Column+' AS TEXT) ILIKE ' + esc(FindTextJokers) + ' OR ';
+                end;
+                ngSQLite: begin
+                  if IsRegExp then
+                    SQL := SQL + Column + ' REGEXP ' + esc(FindText) + ' OR '
+                  else
+                    SQL := SQL + Column + ' LIKE ' + esc(FindTextJokers) + ' OR ';
                 end;
               end;
             end;
@@ -923,6 +993,10 @@ begin
               SQL := 'SELECT '''+DBObj.Database+''' AS '+DBObj.Connection.QuoteIdent('Database')+', '''+DBObj.Name+''' AS '+DBObj.Connection.QuoteIdent('Table')+', COUNT(*) AS '+DBObj.Connection.QuoteIdent('Found rows')+', '
                 + 'CONVERT(VARCHAR(10), ROUND(100 / '+IntToStr(Max(DBObj.Rows,1))+' * COUNT(*), 1)) + ''%'' AS '+DBObj.Connection.QuoteIdent('Relevance')+' FROM '+DBObj.QuotedDatabase+'.'+DBObj.QuotedName+' WHERE '
                 + SQL;
+            ngSQLite:
+              SQL := 'SELECT '''+DBObj.Database+''' AS '+DBObj.Connection.QuoteIdent('Database')+', '''+DBObj.Name+''' AS '+DBObj.Connection.QuoteIdent('Table')+', COUNT(*) AS '+DBObj.Connection.QuoteIdent('Found rows')+', '
+                + '(ROUND(100 / '+IntToStr(Max(DBObj.Rows,1))+' * COUNT(*), 1) || ''%'') AS '+DBObj.Connection.QuoteIdent('Relevance')+' FROM '+DBObj.QuotedDatabase+'.'+DBObj.QuotedName+' WHERE '
+                + SQL;
           end;
           AddResults(SQL, DBObj.Connection);
         end else
@@ -936,7 +1010,7 @@ begin
         esc(DBObj.Name)+' AS '+DBObj.Connection.QuoteIdent('Table')+', '+
         DBObj.Connection.GetSQLSpecifity(spFuncCeil)+'(('+DBObj.Connection.GetSQLSpecifity(spFuncLength)+'('+RoutineDefinitionColumn+') - '+DBObj.Connection.GetSQLSpecifity(spFuncLength)+'(REPLACE('+RoutineDefinitionColumn+', '+esc(FindText)+', '+esc('')+'))) / '+DBObj.Connection.GetSQLSpecifity(spFuncLength)+'('+esc(FindText)+')) AS '+DBObj.Connection.QuoteIdent('Found rows')+', '+
         '0 AS '+DBObj.Connection.QuoteIdent('Relevance')+
-        'FROM '+DBObj.Connection.QuoteIdent('information_schema')+'.'+DBObj.Connection.QuoteIdent('routines')+' '+
+        'FROM '+DBObj.Connection.QuoteIdent(DBObj.Connection.InfSch)+'.'+DBObj.Connection.QuoteIdent('routines')+' '+
         'WHERE '+DBObj.Connection.QuoteIdent(RoutineSchemaColumn)+'='+esc(DBObj.Database)+' AND '+DBObj.Connection.QuoteIdent('routine_name')+'='+esc(DBObj.Name);
       AddResults(SQL, DBObj.Connection);
     end;
@@ -1145,7 +1219,6 @@ end;
 
 procedure TfrmTableTools.comboExportOutputTypeChange(Sender: TObject);
 var
-  SessionNode, DBNode: PVirtualNode;
   SessionName, FilenameHint: String;
   Params: TConnectionParameters;
   Placeholders: TStringList;
@@ -1199,18 +1272,7 @@ begin
     lblExportOutputTarget.Caption := _('Database')+':';
     btnExportOutputTargetSelect.Enabled := False;
     btnExportOutputTargetSelect.ImageIndex := 27;
-    // Add unchecked databases
-    comboExportOutputTarget.Items.Clear;
-    SessionNode := MainForm.GetRootNode(TreeObjects, MainForm.ActiveConnection);
-    DBNode := TreeObjects.GetFirstChild(SessionNode);
-    while Assigned(DBNode) do begin
-      if DBNode.CheckState in [csUncheckedNormal, csUncheckedPressed] then
-        comboExportOutputTarget.Items.Add(TreeObjects.Text[DBNode, 0]);
-      DBNode := TreeObjects.GetNextSibling(DBNode);
-    end;
-    comboExportOutputTarget.ItemIndex := comboExportOutputTarget.Items.IndexOf(AppSettings.ReadString(asExportSQLDatabase));
-    if comboExportOutputTarget.ItemIndex = -1 then
-      comboExportOutputTarget.ItemIndex := 0;
+    FillTargetDatabases;
   end else begin
     // Server selected. Display databases in below dropdown
     comboExportOutputTarget.Style := csDropDownList;
@@ -1233,7 +1295,7 @@ begin
         comboExportOutputTarget.ItemIndex := 0;
       Screen.Cursor := crDefault;
     except
-      on E:EDatabaseError do begin
+      on E:EDbError do begin
         Screen.Cursor := crDefault;
         ErrorDialog(E.Message);
         comboExportOutputType.ItemIndex := FLastOutputSelectedIndex;
@@ -1378,13 +1440,14 @@ end;
 
 procedure TfrmTableTools.DoExport(DBObj: TDBObject);
 var
-  IsFirstRowInChunk, NeedsDBStructure: Boolean;
-  Struc, Header, DbDir, FinalDbName, BaseInsert, Row, TargetDbAndObject, BinContent, tmp, Dummy: String;
+  NeedsDBStructure: Boolean;
+  InsertSizeExceeded, RowLimitExceeded: Boolean;
+  Struc, Header, DbDir, FinalDbName, BaseInsert, Row, TargetDbAndObject, BinContent, tmp: String;
   i: Integer;
-  RowCount, Limit, Offset, ResultCount: Int64;
+  RowCount, RowCountInChunk: Int64;
+  Limit, Offset, ResultCount: Int64;
   StartTime: Cardinal;
   StrucResult, Data: TDBQuery;
-  rx: TRegExpr;
   ColumnList: TTableColumnList;
   Column: TTableColumn;
   Quoter: TDBConnection;
@@ -1410,8 +1473,8 @@ const
 
 begin
   // Handle one table, view or whatever in SQL export mode
-  AddResults('SELECT '+esc(DBObj.Database)+' AS '+DBObj.Connection.QuoteIdent('Database')+', ' +
-    esc(DBObj.Name)+' AS '+DBObj.Connection.QuoteIdent('Table')+', ' +
+  AddResults('SELECT '+DBObj.Connection.EscapeString(DBObj.Database)+' AS '+DBObj.Connection.QuoteIdent('Database')+', ' +
+    DBObj.Connection.EscapeString(DBObj.Name)+' AS '+DBObj.Connection.QuoteIdent('Table')+', ' +
     IntToStr(DBObj.Rows)+' AS '+DBObj.Connection.QuoteIdent('Rows')+', '+
     '0 AS '+DBObj.Connection.QuoteIdent('Duration')
     , DBObj.Connection
@@ -1449,6 +1512,8 @@ begin
         TargetFileName := ChangeFileExt(TargetFileName, '_temp.sql');
       if not IsValidFilePath(TargetFileName) then
         raise EFCreateError.CreateFmt(_('Filename or path contains illegal characters: "%s"'), [TargetFilename]);
+      if not DirectoryExists(ExtractFilePath(FExportFileName)) then
+        ForceDirectories(ExtractFilePath(FExportFileName));
       ExportStream := TFileStream.Create(TargetFileName, fmCreate or fmOpenWrite);
     end;
     // ToDir handled above
@@ -1458,6 +1523,7 @@ begin
       ExportStream := TMemoryStream.Create;
   end;
   if not FHeaderCreated then begin
+    // For output to file or directory:
     if DBObj.Connection.CharacterSet = 'utf8mb4' then
       SetCharsetCode := '/*!40101 SET NAMES utf8 */;' + CRLF +
         '/*!50503 SET NAMES '+DBObj.Connection.CharacterSet+' */;' + CRLF
@@ -1477,11 +1543,16 @@ begin
       '/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;' + CRLF +
       SetCharsetCode +
       '/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;' + CRLF +
-      '/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE=''NO_AUTO_VALUE_ON_ZERO'' */;' + CRLF;
+      '/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE=''NO_AUTO_VALUE_ON_ZERO'' */;' + CRLF +
+      '/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;' + CRLF;
     Output(Header, False, DBObj.Database<>ExportLastDatabase, True, False, False);
+    Output(CRLF, False, True, True, False, False);
+
+    // For direct output to database or server:
     Output('/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */', True, False, False, True, True);
     Output('/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE=''NO_AUTO_VALUE_ON_ZERO'' */', True, False, False, True, True);
-    Output(CRLF, False, True, True, False, False);
+    Output('/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */', True, False, False, True, True);
+
     FHeaderCreated := True;
   end;
 
@@ -1505,13 +1576,13 @@ begin
       end else
         Struc := 'CREATE DATABASE IF NOT EXISTS '+Quoter.QuoteIdent(FinalDbName);
       Output(Struc, True, NeedsDBStructure, False, False, NeedsDBStructure);
-      Output('USE '+Quoter.QuoteIdent(FinalDbName), True, NeedsDBStructure, False, False, NeedsDBStructure);
+      Output(Quoter.GetSQLSpecifity(spUSEQuery, [Quoter.QuoteIdent(FinalDbName)]), True, NeedsDBStructure, False, False, NeedsDBStructure);
       Output(CRLF, False, NeedsDBStructure, False, False, NeedsDBStructure);
     end;
   end;
   if ToServer and (not chkExportDatabasesCreate.Checked) then begin
     // Export to server without "CREATE/USE dbname" and "Same dbs as on source server" - needs a "USE dbname"
-    Output('USE '+Quoter.QuoteIdent(FinalDbName), True, False, False, False, NeedsDBStructure);
+    Output(Quoter.GetSQLSpecifity(spUSEQuery, [Quoter.QuoteIdent(FinalDbName)]), True, False, False, False, NeedsDBStructure);
   end;
 
   // Table structure
@@ -1529,35 +1600,16 @@ begin
       try
         case DBObj.NodeType of
           lntTable: begin
-            Struc := DBObj.CreateCode;
-            // Remove AUTO_INCREMENT clause
-            if menuExportRemoveAutoIncrement.Checked then begin
-              rx := TRegExpr.Create;
-              rx.ModifierI := True;
-              rx.Expression := '\sAUTO_INCREMENT\s*\=\s*\d+\s';
-              Struc := rx.Replace(Struc, ' ', false);
-              rx.Free;
-            end;
+            Struc := DBObj.GetCreateCode(menuExportRemoveAutoIncrement.Checked, False);
             Insert('IF NOT EXISTS ', Struc, Pos('TABLE', Struc) + 6);
             if ToDb then
               Insert(Quoter.QuoteIdent(FinalDbName)+'.', Struc, Pos('EXISTS', Struc) + 7 );
-            if ToServer then begin
-              rx := TRegExpr.Create;
-              rx.ModifierI := True;
-              rx.Expression := '(\s)(TYPE|ENGINE)(\=|\s+)(\w+)';
-              if FTargetConnection.ServerVersionInt < 40018 then
-                Struc := rx.Replace(Struc, '${1}TYPE${3}${4}', true)
-              else
-                Struc := rx.Replace(Struc, '${1}ENGINE${3}${4}', true);
-              rx.Free;
-            end;
           end;
 
           lntView: begin
             if not FSecondExportPass then begin
               // Create temporary VIEW replacement
-              ColumnList := TTableColumnList.Create(True);
-              DBObj.Connection.ParseViewStructure(DBObj.CreateCode, DBObj, ColumnList, Dummy, Dummy, Dummy, Dummy, Dummy);
+              ColumnList := DBObj.TableColumns;
               Struc := '';
               if menuExportAddComments.Checked then
                 Struc := Struc + '-- '+_('Creating temporary table to overcome VIEW dependency errors')+CRLF;
@@ -1583,20 +1635,19 @@ begin
                 Struc := Struc + Quoter.QuoteIdent(FinalDbName)+'.';
               Struc := Struc + Quoter.QuoteIdent(DBObj.Name);
               Output(Struc, True, True, True, True, True);
-              Struc := DBObj.CreateCode;
+              Struc := DBObj.GetCreateCode(False, menuExportRemoveDefiner.Checked);
               if ToDb then
                 Insert(Quoter.QuoteIdent(FinalDbName)+'.', Struc, Pos('VIEW', Struc) + 5 );
             end;
           end;
 
           lntTrigger: begin
-            StrucResult := DBObj.Connection.GetResults('SHOW TRIGGERS FROM '+DBObj.QuotedDatabase+' WHERE `Trigger`='+esc(DBObj.Name));
-            Struc := 'CREATE '+UpperCase(DBObj.ObjType)+' '+Quoter.QuoteIdent(DBObj.Name)+' '+StrucResult.Col('Timing')+' '+StrucResult.Col('Event')+
-                ' ON '+Quoter.QuoteIdent(StrucResult.Col('Table'))+' FOR EACH ROW '+StrucResult.Col('Statement');
+            StrucResult := DBObj.Connection.GetResults('SHOW TRIGGERS FROM '+DBObj.QuotedDatabase+' WHERE `Trigger`='+DBObj.Connection.EscapeString(DBObj.Name));
+            Struc := DBObj.GetCreateCode(False, menuExportRemoveDefiner.Checked);
             if ToDb then
               Insert(Quoter.QuoteIdent(FinalDbName)+'.', Struc, Pos('TRIGGER', Struc) + 8 );
             if ToFile or ToClipboard or ToDir then begin
-              Struc := 'SET @OLDTMP_SQL_MODE=@@SQL_MODE, SQL_MODE=' + esc(StrucResult.Col('sql_mode')) + ';' + CRLF +
+              Struc := 'SET @OLDTMP_SQL_MODE=@@SQL_MODE, SQL_MODE=' + DBObj.Connection.EscapeString(StrucResult.Col('sql_mode')) + ';' + CRLF +
                 'DELIMITER ' + TempDelim + CRLF +
                 Struc + TempDelim + CRLF +
                 'DELIMITER ;' + CRLF +
@@ -1605,7 +1656,7 @@ begin
           end;
 
           lntFunction, lntProcedure: begin
-            Struc := DBObj.CreateCode;
+            Struc := DBObj.GetCreateCode(False, menuExportRemoveDefiner.Checked);
             if ToDb then begin
               if DBObj.NodeType = lntProcedure then
                 Insert(Quoter.QuoteIdent(FinalDbName)+'.', Struc, Pos('PROCEDURE', Struc) + 10 )
@@ -1618,7 +1669,7 @@ begin
           end;
 
           lntEvent: begin
-            Struc := DBObj.CreateCode;
+            Struc := DBObj.GetCreateCode(False, menuExportRemoveDefiner.Checked);
             if ToDb then
               Insert(Quoter.QuoteIdent(FinalDbName)+'.', Struc, Pos('EVENT', Struc) + 6 );
             if ToFile or ToDir or ToClipboard then
@@ -1629,7 +1680,7 @@ begin
         Output(Struc, True, True, True, True, True);
         Output(CRLF, False, True, True, True, True);
       except
-        on E:EDatabaseError do begin
+        on E:EDbError do begin
           // Catch the exception message and dump it into the export file for debugging reasons
           Output('/* '+E.Message+' */', False, True, True, False, False);
           Raise;
@@ -1688,11 +1739,11 @@ begin
         BaseInsert := BaseInsert + ') VALUES'+CRLF+#9+'(';
         while true do begin
           Output(BaseInsert, False, True, True, True, True);
-          IsFirstRowInChunk := True;
+          RowCountInChunk := 0;
 
           while not Data.Eof do begin
             Row := '';
-            if not IsFirstRowInChunk then
+            if RowCountInChunk > 0 then
               Row := Row + ','+CRLF+#9+'(';
             for i:=0 to Data.ColumnCount-1 do begin
               if Data.ColIsVirtual(i) then
@@ -1711,21 +1762,22 @@ begin
                   if Length(BinContent) > 0 then
                     Row := Row + '_binary ' + BinContent
                   else
-                    Row := Row + esc('');
+                    Row := Row + Quoter.EscapeString('');
                 end;
-                else Row := Row + esc(Data.Col(i));
+                else Row := Row + Quoter.EscapeString(Data.Col(i));
               end;
               Row := Row + ', ';
             end;
             Delete(Row, Length(Row)-1, 2);
             Row := Row + ')';
             // Break if stream would increase over the barrier of 1MB, and throw away current row
-            if (not IsFirstRowInChunk)
-              and (ExportStream.Size - ExportStreamStartOfQueryPos + Length(Row) > updownInsertSize.Position*SIZE_KB*0.9)
-              then
-              break;
+            InsertSizeExceeded := ExportStream.Size - ExportStreamStartOfQueryPos + Length(Row) > updownInsertSize.Position*SIZE_KB*0.9;
+            // Same with MSSQL which is limited to 1000 rows per INSERT
+            RowLimitExceeded := RowCountInChunk >= Quoter.MaxRowsPerInsert;
+            if (RowCountInChunk > 0) and (InsertSizeExceeded or RowLimitExceeded) then
+              Break;
             Inc(RowCount);
-            IsFirstRowInChunk := False;
+            Inc(RowCountInChunk);
             Output(Row, False, True, True, True, True);
             Data.Next;
           end;
@@ -1778,10 +1830,11 @@ var
   CreateView: String;
   rx: TRegExpr;
   HasCharsetClause: Boolean;
+  SelectedCharset: String;
 begin
-  AddResults('SELECT '+esc(DBObj.Database)+' AS '+DBObj.Connection.QuoteIdent('Database')+', ' +
-    esc(DBObj.Name)+' AS '+DBObj.Connection.QuoteIdent('Table')+', ' +
-    esc('Updating...')+' AS '+DBObj.Connection.QuoteIdent('Operation')+', '+
+  AddResults('SELECT '+DBObj.Connection.EscapeString(DBObj.Database)+' AS '+DBObj.Connection.QuoteIdent('Database')+', ' +
+    DBObj.Connection.EscapeString(DBObj.Name)+' AS '+DBObj.Connection.QuoteIdent('Table')+', ' +
+    DBObj.Connection.EscapeString('Updating...')+' AS '+DBObj.Connection.QuoteIdent('Operation')+', '+
     ''''' AS '+DBObj.Connection.QuoteIdent('Result')
     , DBObj.Connection
     );
@@ -1820,15 +1873,15 @@ begin
   if DBObj.NodeType = lntTable then begin
     HasCharsetClause := False;
     if chkBulkTableEditCharset.Checked and (comboBulkTableEditCharset.ItemIndex > -1) then begin
-      MainForm.ActiveConnection.CharsetTable.RecNo := comboBulkTableEditCharset.ItemIndex;
-      Specs.Add('CONVERT TO CHARSET '+DBObj.Connection.CharsetTable.Col('Charset'));
+      SelectedCharset := RegExprGetMatch('^(\w+)\b', comboBulkTableEditCharset.Text, 1);
+      Specs.Add('CONVERT TO CHARSET '+SelectedCharset);
       HasCharsetClause := True;
     end;
     if chkBulkTableEditCollation.Checked and (comboBulkTableEditCollation.ItemIndex > -1) then begin
       if HasCharsetClause then // No comma between charset + collation clause
-        Specs[Specs.Count-1] := Specs[Specs.Count-1] + ' COLLATE '+esc(comboBulkTableEditCollation.Text)
+        Specs[Specs.Count-1] := Specs[Specs.Count-1] + ' COLLATE '+DBObj.Connection.EscapeString(comboBulkTableEditCollation.Text)
       else
-        Specs.Add('COLLATE '+esc(comboBulkTableEditCollation.Text));
+        Specs.Add('COLLATE '+DBObj.Connection.EscapeString(comboBulkTableEditCollation.Text));
     end;
     if chkBulkTableEditResetAutoinc.Checked then
       Specs.Add('AUTO_INCREMENT=0');

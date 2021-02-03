@@ -1,146 +1,118 @@
 <?php
 /**
  * This is a helper file for generating the MySQLFunctions Array
- * in /source/mysql.pas
- * Functions are fetched by using the HELP commands 
- */  
+ * in dbstructures.pas
+ * Functions are fetched by using the HELP commands
+ */
 
-// Gather version information for functions
-$ver_cont = file_get_contents('http://dev.mysql.com/doc/refman/6.0/en/func-op-summary-ref.html');
-if( $ver_cont )
-{
-	// <code class="literal">ADDDATE()</code></a>(v4.1.1)
-	$ver_cont = html_entity_decode($ver_cont);
-	$matches = array();
-	preg_match_all( '#\<a[^\>]+\>\<code class="literal"\>([^\(\s\<]+).*\<\/a\>\(v(.+)\)#', $ver_cont, $matches );
-	$versions = array();
-	for( $i=0; $i<count($matches[0]); $i++ )
-	{
-		$versionArr = explode( '.', $matches[2][$i] );
-		// make int of array
-		if( !isset($versionArr[1]) )
-			$versionArr[1] = '0';
-		if( !isset($versionArr[2]) )
-			$versionArr[2] = '0';
-		$version = sprintf('%d%02d%02d',
-			$versionArr[0],
-			$versionArr[1],
-			$versionArr[2]
-			);
-		// functionname => version
-		$versions[ $matches[1][$i] ] = $version;
-	}
+
+$mysqli = mysqli_connect('localhost', 'root');
+$query = mysqli_query($mysqli, "SELECT t.name, t.description, c.name AS categ
+	FROM mysql.help_topic t, mysql.help_category c
+	WHERE
+		t.help_category_id = c.help_category_id
+	ORDER BY c.name, t.name");
+if(mysqli_errno($mysqli)) {
+    die (mysqli_error($mysqli));
 }
 
-// Specify your own host, user, pass here.
-// Do NOT commit passwords into SVN!!
-mysql_connect( 'localhost', 'root' );
-
+$functionTexts = [];
 $nl = "\r\n";
-$fnames = array();
-$fstruc = array();
+$hSyntax = "Syntax\n------";
+$hDesc = "Description\n-----------";
 
-$q = mysql_query('HELP "functions"');
-while( $row = mysql_fetch_object($q) )
-{
-	if( $row->is_it_category == 'Y' )
-	{
-		getfunctions($row->name);
+// Syntax
+// ------ 
+// ADDDATE(date,INTERVAL expr unit), ADDDATE(expr,days)
+// 
+// Description
+// ----------- 
+
+while($row = mysqli_fetch_object($query)) {
+	$name = $row->name;
+	$desc = str_replace("\r\n", "\n", $row->description);
+
+	$pSyntax = strpos($desc, $hSyntax);
+	$pDesc = strpos($desc, $hDesc);
+	
+	if($pSyntax === false) {
+		continue;
 	}
-}
-getfunctions('Functions and Modifiers for Use with GROUP BY');
-getfunctions('Geographic Features');
-
-
-function getfunctions( $cat, $rootcat='' )
-{
-	global $nl, $fstruc, $fnames, $versions;
-	$q = mysql_query('HELP "'.$cat.'"');
-	while( $row = mysql_fetch_object($q) )
-	{
-		if( $row->is_it_category == 'Y' )
-		{
-			if( empty($rootcat) )
-			{
-				$rootcat = $cat;
-			}
-			getfunctions( $row->name, $rootcat );
+	
+	$syntax = substr($desc, $pSyntax, $pDesc-$pSyntax);
+	$syntax = substr($syntax, strlen($hSyntax));
+	$syntax = trim($syntax);
+	$syntax = str_replace("\n", " ", $syntax);
+	if(!preg_match('#^'.preg_quote($name).'\(#i', $syntax)) {
+		continue;
+	}
+	$declarations = [];
+	$parCount = 0;
+	$decl = '';
+	for($i=strpos($syntax, '('); $i<strlen($syntax); $i++) {
+		if($syntax[$i] == '(') {
+			$parCount++;
+			$decl .= $syntax[$i];
 		}
-		else
-		{
-			$sql = "HELP '".$row->name."'";
-			$qdetails = mysql_query($sql);
-			$rowdetails = mysql_fetch_object($qdetails);
-
-			if( preg_match('#(\S+)#', $rowdetails->name, $m1) )
-			{
-				$name = $m1[1];
+		else if($syntax[$i] == ')') {
+			$parCount--;
+			$decl .= $syntax[$i];
+		}
+		else if($parCount > 0) {
+			$decl .= $syntax[$i];
+		}
+		
+		if($parCount == 0 && !empty($decl)) {
+			if(!in_array($decl, $declarations)) {
+				$decl = str_replace("'", "''", $decl);
+				$declarations[] = $decl;
 			}
-			else
-			{
-				$name = $row->name;
-			}
-
-			if( in_array($name,$fnames) )
-			{
-				continue;
-			}
-			$fnames[] = $name; 
-
-			$declaration = '';
-			$desc_cut = substr($rowdetails->description, 0, strpos($rowdetails->description,"\n\n")); 
-			$df = preg_match('#(Syntax:)?[^\(]*(\([^\)]*\))#Us', $desc_cut, $m2);
-			if( $df )
-			{
-				$declaration = $m2[2];
-				$declaration = str_replace("'", "''", $declaration );
-			}
-
-			$description = '';
-			$df = preg_match('#(Syntax:)?.*\n\n(.+)$#Uis', $rowdetails->description, $m3);
-			if( $df )
-			{
-				$description = trim($m3[2]);
-				$description = preg_replace('#\bURL\:\s+\S+#s', ' ', $description );
-				$description = preg_replace('#(\s+)#', ' ', $description );
-				$description = str_replace(' o ', ' ', $description);
-				$description = str_replace("'", "''", $description );
-				$description = trim($description );
-				$description = wordwrap($description,70, " '".$nl."        +'" );
-			}
-
-			$version = 'SQL_VERSION_ANSI';
-			if( !empty($versions[$name]) )
-			{
-				$version = $versions[$name];
-			}
-
-			$fstruc[$name] = sprintf("    (".$nl
-				."      Name:         '%s';".$nl
-				."      Declaration:  '%s';".$nl
-				."      Category:     '%s';".$nl
-				."      Version:      %s;".$nl
-				."      Description:  '%s'".$nl
-				."    ),".$nl.$nl,
-				$name,
-				$declaration,
-				(!empty($rootcat) ? $rootcat : $cat),
-				$version,
-				$description
-				);
+			$decl = '';
 		}
 	}
-}
+	
+	if($pDesc !== false) {
+		$descr = substr($desc, $pDesc);
+		$descr = substr($descr, strlen($hDesc));
+		$descr = preg_replace("#^\w+\n----(.*)#m", '', $descr);
+        $descr = preg_replace('#\bURL\:\s+\S+#s', ' ', $descr);
+		$descr = trim($descr);
+		$descr = str_replace("'", "''", $descr);
+		//$description = preg_replace('#(\s+)#', ' ', $description);
+		//$description = wordwrap($description,72, " '".$nl."        +'");
+		$descr = preg_split('#\r?\n#', $descr);
+		$descr = implode("'+sLineBreak\r\n        +'", $descr);
+	}
+	else {
+		$descr = '';
+	}
+	
+	foreach($declarations as $declaration) {
 
-// Sort alphabetically by function name
-asort($fstruc);
+		$functionTexts[] = sprintf("    (".$nl
+			."      Name:         '%s';".$nl
+			."      Declaration:  '%s';".$nl
+			."      Category:     '%s';".$nl
+			."      Version:      %s;".$nl
+			."      Description:  '%s'".$nl
+			."    ),".$nl.$nl,
+			$row->name,
+			$declaration,
+			$row->categ,
+			'SQL_VERSION_ANSI',
+			$descr
+		);
+		#break;
+	}
+}
 
 // produce output
 $counter = 0;
-foreach( $fstruc as $func )
+echo "  MySqlFunctions: Array [0..".(count($functionTexts)-1)."] of TMysqlFunction =" . $nl
+  . "  (" . $nl;
+foreach($functionTexts as $key=>$funcText)
 {
-	print '    // Function nr. '.++$counter.$nl; 
-	print $func;
+    //echo '    // Function nr. '.++$counter.$nl;
+    echo $funcText;
 }
-
-?>
+echo "  );" . $nl;

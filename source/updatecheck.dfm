@@ -1,25 +1,31 @@
 object frmUpdateCheck: TfrmUpdateCheck
   Left = 0
   Top = 0
-  BorderStyle = bsDialog
   Caption = 'Check for updates ...'
-  ClientHeight = 425
-  ClientWidth = 384
+  ClientHeight = 415
+  ClientWidth = 374
   Color = clBtnFace
-  ParentFont = True
+  Constraints.MinHeight = 400
+  Constraints.MinWidth = 300
+  Font.Charset = DEFAULT_CHARSET
+  Font.Color = clWindowText
+  Font.Height = -11
+  Font.Name = 'Tahoma'
+  Font.Style = []
   OldCreateOrder = False
-  Position = poMainFormCenter
+  Position = poOwnerFormCenter
   OnCreate = FormCreate
+  OnDestroy = FormDestroy
   OnShow = FormShow
   DesignSize = (
-    384
-    425)
+    374
+    415)
   PixelsPerInch = 96
   TextHeight = 13
   object lblStatus: TLabel
     Left = 8
-    Top = 385
-    Width = 256
+    Top = 375
+    Width = 246
     Height = 38
     Anchors = [akLeft, akRight, akBottom]
     AutoSize = False
@@ -28,15 +34,16 @@ object frmUpdateCheck: TfrmUpdateCheck
     WordWrap = True
   end
   object imgDonate: TImage
-    Left = 64
-    Top = 15
-    Width = 250
-    Height = 45
+    Left = 0
+    Top = 0
+    Width = 374
+    Height = 70
     Cursor = crHandPoint
     Hint = 
       'Send an arbitrary amount as donation to the author - per PayPal ' +
       '(also supports credit cards)'
-    AutoSize = True
+    Align = alTop
+    Center = True
     Picture.Data = {
       07544269746D617066840000424D66840000000000003600000028000000FA00
       00002D000000010018000000000030840000C40E0000C40E0000000000000000
@@ -1100,8 +1107,8 @@ object frmUpdateCheck: TfrmUpdateCheck
       0000000006120B345A43D7E6DDFFFFFF00FF}
   end
   object btnCancel: TButton
-    Left = 270
-    Top = 392
+    Left = 260
+    Top = 382
     Width = 106
     Height = 25
     Anchors = [akRight, akBottom]
@@ -1114,18 +1121,18 @@ object frmUpdateCheck: TfrmUpdateCheck
   object groupBuild: TGroupBox
     Left = 8
     Top = 192
-    Width = 368
-    Height = 193
+    Width = 358
+    Height = 183
     Anchors = [akLeft, akTop, akRight, akBottom]
     Caption = 'Nightly build'
     TabOrder = 1
     DesignSize = (
-      368
-      193)
+      358
+      183)
     object btnBuild: TButton
       Left = 6
-      Top = 161
-      Width = 355
+      Top = 151
+      Width = 345
       Height = 25
       Anchors = [akLeft, akRight, akBottom]
       Caption = 'Download nightly build'
@@ -1137,22 +1144,29 @@ object frmUpdateCheck: TfrmUpdateCheck
     object memoBuild: TMemo
       Left = 6
       Top = 16
-      Width = 355
-      Height = 113
+      Width = 345
+      Height = 103
       Anchors = [akLeft, akTop, akRight, akBottom]
       BorderStyle = bsNone
       Color = clBtnFace
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -12
+      Font.Name = 'Courier New'
+      Font.Style = []
       Lines.Strings = (
         'memoBuild')
+      ParentFont = False
       ReadOnly = True
       ScrollBars = ssVertical
       TabOrder = 1
     end
     object btnChangelog: TButton
       Left = 6
-      Top = 130
-      Width = 355
+      Top = 120
+      Width = 345
       Height = 25
+      Anchors = [akLeft, akRight, akBottom]
       Caption = 'View changelog'
       TabOrder = 2
       OnClick = btnChangelogClick
@@ -1161,19 +1175,19 @@ object frmUpdateCheck: TfrmUpdateCheck
   object groupRelease: TGroupBox
     Left = 8
     Top = 76
-    Width = 368
+    Width = 358
     Height = 110
     Anchors = [akLeft, akTop, akRight]
     Caption = 'Official release'
     Enabled = False
     TabOrder = 2
     DesignSize = (
-      368
+      358
       110)
     object btnRelease: TButton
       Left = 6
       Top = 78
-      Width = 355
+      Width = 345
       Height = 25
       Anchors = [akLeft, akRight, akBottom]
       Caption = 'Download new release'
@@ -1184,7 +1198,7 @@ object frmUpdateCheck: TfrmUpdateCheck
     object memoRelease: TMemo
       Left = 6
       Top = 16
-      Width = 355
+      Width = 345
       Height = 60
       Anchors = [akLeft, akTop, akRight, akBottom]
       BorderStyle = bsNone

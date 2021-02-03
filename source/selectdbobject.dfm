@@ -7,7 +7,11 @@ object frmSelectDBObject: TfrmSelectDBObject
   Color = clBtnFace
   Constraints.MinHeight = 250
   Constraints.MinWidth = 200
-  ParentFont = True
+  Font.Charset = DEFAULT_CHARSET
+  Font.Color = clWindowText
+  Font.Height = -11
+  Font.Name = 'Tahoma'
+  Font.Style = []
   OldCreateOrder = False
   Position = poOwnerFormCenter
   OnCreate = FormCreate
@@ -49,6 +53,7 @@ object frmSelectDBObject: TfrmSelectDBObject
     OnEnter = ValidateControls
     OnFocusChanged = TreeDBOFocusChanged
     OnGetText = TreeDBOGetText
+    OnPaintText = TreeDBOPaintText
     OnGetImageIndex = TreeDBOGetImageIndex
     OnGetNodeDataSize = TreeDBOGetNodeDataSize
     OnInitChildren = TreeDBOInitChildren

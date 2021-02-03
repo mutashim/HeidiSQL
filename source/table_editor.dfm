@@ -34,232 +34,213 @@ object frmTableEditor: TfrmTableEditor
     object tabBasic: TTabSheet
       Caption = 'Basic'
       ImageIndex = 14
-      object pnlDpiHelperBasic: TPanel
-        Left = 0
-        Top = 0
-        Width = 686
-        Height = 121
-        Align = alClient
-        BevelOuter = bvNone
-        Caption = 'pnlDpiHelperBasic'
-        ShowCaption = False
+      ImageName = 'icons8-data-sheet-100'
+      DesignSize = (
+        686
+        121)
+      object lblName: TLabel
+        Left = 4
+        Top = 6
+        Width = 31
+        Height = 13
+        Caption = 'Name:'
+      end
+      object lblComment: TLabel
+        Left = 4
+        Top = 33
+        Width = 49
+        Height = 13
+        Caption = 'Comment:'
+      end
+      object editName: TEdit
+        Left = 96
+        Top = 3
+        Width = 589
+        Height = 21
+        Anchors = [akLeft, akTop, akRight]
         TabOrder = 0
-        DesignSize = (
-          686
-          121)
-        object lblName: TLabel
-          Left = 4
-          Top = 6
-          Width = 31
-          Height = 13
-          Caption = 'Name:'
-        end
-        object lblComment: TLabel
-          Left = 4
-          Top = 33
-          Width = 49
-          Height = 13
-          Caption = 'Comment:'
-        end
-        object editName: TEdit
-          Left = 96
-          Top = 3
-          Width = 589
-          Height = 21
-          Anchors = [akLeft, akTop, akRight]
-          TabOrder = 0
-          Text = 'editName'
-          TextHint = 'Enter table name'
-          OnChange = Modification
-        end
-        object memoComment: TMemo
-          Left = 96
-          Top = 30
-          Width = 589
-          Height = 79
-          Anchors = [akLeft, akTop, akRight, akBottom]
-          Lines.Strings = (
-            'memoComment')
-          MaxLength = 60
-          ScrollBars = ssVertical
-          TabOrder = 1
-          OnChange = Modification
-        end
+        Text = 'editName'
+        TextHint = 'Enter table name'
+        OnChange = Modification
+      end
+      object memoComment: TMemo
+        Left = 96
+        Top = 30
+        Width = 589
+        Height = 78
+        Anchors = [akLeft, akTop, akRight, akBottom]
+        Lines.Strings = (
+          'memoComment')
+        MaxLength = 60
+        ScrollBars = ssVertical
+        TabOrder = 1
+        OnChange = Modification
       end
     end
     object tabOptions: TTabSheet
       Caption = 'Options'
       ImageIndex = 39
-      object pnlDpiHelperOptions: TPanel
-        Left = 0
-        Top = 0
-        Width = 686
-        Height = 121
-        Align = alClient
-        BevelOuter = bvNone
-        Caption = 'pnlDpiHelperOptions'
-        ShowCaption = False
+      ImageName = 'icons8-support'
+      DesignSize = (
+        686
+        121)
+      object lblAutoinc: TLabel
+        Left = 4
+        Top = 6
+        Width = 77
+        Height = 13
+        Caption = 'Auto increment:'
+      end
+      object lblAvgRowLen: TLabel
+        Left = 4
+        Top = 29
+        Width = 99
+        Height = 13
+        Caption = 'Average row length:'
+      end
+      object lblInsertMethod: TLabel
+        Left = 294
+        Top = 98
+        Width = 79
+        Height = 13
+        Caption = 'INSERT method:'
+      end
+      object lblUnion: TLabel
+        Left = 294
+        Top = 52
+        Width = 63
+        Height = 13
+        Caption = 'Union tables:'
+      end
+      object lblMaxRows: TLabel
+        Left = 4
+        Top = 52
+        Width = 99
+        Height = 13
+        Caption = 'Maximum row count:'
+      end
+      object lblRowFormat: TLabel
+        Left = 4
+        Top = 98
+        Width = 60
+        Height = 13
+        Caption = 'Row format:'
+      end
+      object lblCollation: TLabel
+        Left = 294
+        Top = 6
+        Width = 81
+        Height = 13
+        Caption = 'Default collation:'
+      end
+      object lblEngine: TLabel
+        Left = 294
+        Top = 29
+        Width = 36
+        Height = 13
+        Caption = 'Engine:'
+      end
+      object editAvgRowLen: TEdit
+        Left = 178
+        Top = 26
+        Width = 110
+        Height = 21
+        TabOrder = 1
+        OnChange = editNumEditChange
+      end
+      object editMaxRows: TEdit
+        Left = 178
+        Top = 49
+        Width = 110
+        Height = 21
+        TabOrder = 2
+        OnChange = editNumEditChange
+      end
+      object chkChecksum: TCheckBox
+        Left = 4
+        Top = 75
+        Width = 189
+        Height = 17
+        Alignment = taLeftJustify
+        Caption = 'Checksum for rows:'
+        TabOrder = 3
+        OnClick = Modification
+      end
+      object comboRowFormat: TComboBox
+        Left = 178
+        Top = 95
+        Width = 110
+        Height = 21
+        Style = csDropDownList
+        TabOrder = 4
+        OnChange = Modification
+      end
+      object memoUnionTables: TMemo
+        Left = 408
+        Top = 49
+        Width = 277
+        Height = 44
+        Anchors = [akLeft, akTop, akRight]
+        Lines.Strings = (
+          'memoUnion')
+        TabOrder = 7
+        OnChange = Modification
+      end
+      object comboInsertMethod: TComboBox
+        Left = 408
+        Top = 95
+        Width = 277
+        Height = 21
+        Style = csDropDownList
+        Anchors = [akLeft, akTop, akRight]
+        TabOrder = 8
+        OnClick = Modification
+      end
+      object editAutoInc: TEdit
+        Left = 178
+        Top = 3
+        Width = 110
+        Height = 21
         TabOrder = 0
-        DesignSize = (
-          686
-          121)
-        object lblAutoinc: TLabel
-          Left = 4
-          Top = 6
-          Width = 77
-          Height = 13
-          Caption = 'Auto increment:'
-        end
-        object lblAvgRowLen: TLabel
-          Left = 4
-          Top = 29
-          Width = 99
-          Height = 13
-          Caption = 'Average row length:'
-        end
-        object lblInsertMethod: TLabel
-          Left = 294
-          Top = 98
-          Width = 79
-          Height = 13
-          Caption = 'INSERT method:'
-        end
-        object lblUnion: TLabel
-          Left = 294
-          Top = 52
-          Width = 63
-          Height = 13
-          Caption = 'Union tables:'
-        end
-        object lblMaxRows: TLabel
-          Left = 4
-          Top = 52
-          Width = 99
-          Height = 13
-          Caption = 'Maximum row count:'
-        end
-        object lblRowFormat: TLabel
-          Left = 4
-          Top = 98
-          Width = 60
-          Height = 13
-          Caption = 'Row format:'
-        end
-        object lblCollation: TLabel
-          Left = 294
-          Top = 6
-          Width = 81
-          Height = 13
-          Caption = 'Default collation:'
-        end
-        object lblEngine: TLabel
-          Left = 294
-          Top = 29
-          Width = 36
-          Height = 13
-          Caption = 'Engine:'
-        end
-        object editAvgRowLen: TEdit
-          Left = 178
-          Top = 26
-          Width = 110
-          Height = 21
-          TabOrder = 1
-          OnChange = editNumEditChange
-        end
-        object editMaxRows: TEdit
-          Left = 178
-          Top = 49
-          Width = 110
-          Height = 21
-          TabOrder = 2
-          OnChange = editNumEditChange
-        end
-        object chkChecksum: TCheckBox
-          Left = 4
-          Top = 75
-          Width = 189
-          Height = 17
-          Alignment = taLeftJustify
-          Caption = 'Checksum for rows:'
-          TabOrder = 3
-          OnClick = Modification
-        end
-        object comboRowFormat: TComboBox
-          Left = 178
-          Top = 95
-          Width = 110
-          Height = 21
-          Style = csDropDownList
-          TabOrder = 4
-          OnChange = Modification
-        end
-        object memoUnionTables: TMemo
-          Left = 408
-          Top = 49
-          Width = 277
-          Height = 44
-          Anchors = [akLeft, akTop, akRight]
-          Lines.Strings = (
-            'memoUnion')
-          TabOrder = 7
-          OnChange = Modification
-        end
-        object comboInsertMethod: TComboBox
-          Left = 408
-          Top = 95
-          Width = 277
-          Height = 21
-          Style = csDropDownList
-          Anchors = [akLeft, akTop, akRight]
-          TabOrder = 8
-          OnClick = Modification
-        end
-        object editAutoInc: TEdit
-          Left = 178
-          Top = 3
-          Width = 110
-          Height = 21
-          TabOrder = 0
-          OnChange = editNumEditChange
-        end
-        object comboCollation: TComboBox
-          Left = 408
-          Top = 3
-          Width = 158
-          Height = 21
-          Style = csDropDownList
-          Anchors = [akLeft, akTop, akRight]
-          DropDownCount = 16
-          Sorted = True
-          TabOrder = 5
-          OnChange = chkCharsetConvertClick
-        end
-        object comboEngine: TComboBox
-          Left = 408
-          Top = 26
-          Width = 277
-          Height = 21
-          Style = csDropDownList
-          Anchors = [akLeft, akTop, akRight]
-          TabOrder = 6
-          OnSelect = comboEngineSelect
-        end
-        object chkCharsetConvert: TCheckBox
-          Left = 574
-          Top = 5
-          Width = 107
-          Height = 17
-          Anchors = [akTop, akRight]
-          Caption = 'Convert data'
-          TabOrder = 9
-          OnClick = chkCharsetConvertClick
-        end
+        OnChange = editNumEditChange
+      end
+      object comboCollation: TComboBox
+        Left = 408
+        Top = 3
+        Width = 158
+        Height = 21
+        Style = csDropDownList
+        Anchors = [akLeft, akTop, akRight]
+        DropDownCount = 16
+        Sorted = True
+        TabOrder = 5
+        OnChange = chkCharsetConvertClick
+      end
+      object comboEngine: TComboBox
+        Left = 408
+        Top = 26
+        Width = 277
+        Height = 21
+        Style = csDropDownList
+        Anchors = [akLeft, akTop, akRight]
+        TabOrder = 6
+        OnSelect = comboEngineSelect
+      end
+      object chkCharsetConvert: TCheckBox
+        Left = 574
+        Top = 5
+        Width = 107
+        Height = 17
+        Anchors = [akTop, akRight]
+        Caption = 'Convert data'
+        TabOrder = 9
+        OnClick = chkCharsetConvertClick
       end
     end
     object tabIndexes: TTabSheet
       Caption = 'Indexes'
       ImageIndex = 13
+      ImageName = 'icons8-lightning-bolt-100'
       object treeIndexes: TVirtualStringTree
         AlignWithMargins = True
         Left = 69
@@ -272,16 +253,17 @@ object frmTableEditor: TfrmTableEditor
         DragMode = dmAutomatic
         EditDelay = 0
         Header.AutoSizeIndex = 0
-        Header.Options = [hoAutoResize, hoColumnResize, hoDrag, hoShowSortGlyphs, hoVisible]
+        Header.Options = [hoAutoResize, hoColumnResize, hoDrag, hoShowSortGlyphs, hoVisible, hoDisableAnimatedResize, hoAutoResizeInclCaption]
+        Header.PopupMenu = MainForm.popupListHeader
         Images = MainForm.VirtualImageListMain
-        PopupMenu = popupIndexes
+        PopupMenu = popupProperties
         TabOrder = 1
         TreeOptions.AutoOptions = [toAutoDropExpand, toAutoScrollOnExpand, toAutoTristateTracking, toAutoChangeScale]
         TreeOptions.MiscOptions = [toAcceptOLEDrop, toEditable, toFullRepaintOnResize, toGridExtensions, toInitOnSave, toToggleOnDblClick, toWheelPanning, toEditOnClick]
         TreeOptions.PaintOptions = [toHotTrack, toShowButtons, toShowDropmark, toShowRoot, toShowTreeLines, toShowVertGridLines, toThemeAware, toUseBlendedImages, toFullVertGridLines, toUseExplorerTheme, toHideTreeLinesIfThemed]
         TreeOptions.SelectionOptions = [toExtendedFocus, toRightClickSelect]
         OnBeforePaint = treeIndexesBeforePaint
-        OnClick = treeIndexesClick
+        OnClick = AnyTreeClick
         OnCreateEditor = treeIndexesCreateEditor
         OnDragOver = treeIndexesDragOver
         OnDragDrop = treeIndexesDragDrop
@@ -292,6 +274,7 @@ object frmTableEditor: TfrmTableEditor
         OnInitChildren = treeIndexesInitChildren
         OnInitNode = treeIndexesInitNode
         OnNewText = treeIndexesNewText
+        OnStructureChange = AnyTreeStructureChange
         Columns = <
           item
             Options = [coEnabled, coParentBidiMode, coParentColor, coResizable, coShowDropMark, coVisible, coAllowFocus]
@@ -330,6 +313,7 @@ object frmTableEditor: TfrmTableEditor
           Hint = 'Add index'
           Caption = 'Add'
           ImageIndex = 45
+          ImageName = 'icons8-add'
           Wrap = True
           OnClick = btnAddIndexClick
         end
@@ -339,6 +323,7 @@ object frmTableEditor: TfrmTableEditor
           Hint = 'Remove index'
           Caption = 'Remove'
           ImageIndex = 46
+          ImageName = 'icons8-delete-button'
           Wrap = True
           OnClick = btnRemoveIndexClick
         end
@@ -348,6 +333,7 @@ object frmTableEditor: TfrmTableEditor
           Hint = 'Clear indexes'
           Caption = 'Clear'
           ImageIndex = 26
+          ImageName = 'icons8-close-button'
           Wrap = True
           OnClick = btnClearIndexesClick
         end
@@ -357,6 +343,7 @@ object frmTableEditor: TfrmTableEditor
           Hint = 'Move up'
           Caption = 'Up'
           ImageIndex = 74
+          ImageName = 'icons8-sort-up'
           Wrap = True
           OnClick = btnMoveUpIndexClick
         end
@@ -366,6 +353,7 @@ object frmTableEditor: TfrmTableEditor
           Hint = 'Move down'
           Caption = 'Down'
           ImageIndex = 75
+          ImageName = 'icons8-caret-arrowhead-facing-down'
           OnClick = btnMoveDownIndexClick
         end
       end
@@ -373,6 +361,7 @@ object frmTableEditor: TfrmTableEditor
     object tabForeignKeys: TTabSheet
       Caption = 'Foreign keys'
       ImageIndex = 136
+      ImageName = 'icons8-data-grid-relation'
       object tlbForeignKeys: TToolBar
         Left = 0
         Top = 0
@@ -391,6 +380,7 @@ object frmTableEditor: TfrmTableEditor
           Top = 0
           Caption = 'Add'
           ImageIndex = 45
+          ImageName = 'icons8-add'
           Wrap = True
           OnClick = btnAddForeignKeyClick
         end
@@ -400,6 +390,7 @@ object frmTableEditor: TfrmTableEditor
           Caption = 'Remove'
           Enabled = False
           ImageIndex = 46
+          ImageName = 'icons8-delete-button'
           Wrap = True
           OnClick = btnRemoveForeignKeyClick
         end
@@ -409,6 +400,7 @@ object frmTableEditor: TfrmTableEditor
           Caption = 'Clear'
           Enabled = False
           ImageIndex = 26
+          ImageName = 'icons8-close-button'
           OnClick = btnClearForeignKeysClick
         end
       end
@@ -422,20 +414,23 @@ object frmTableEditor: TfrmTableEditor
         Align = alClient
         EditDelay = 0
         Header.AutoSizeIndex = 0
-        Header.Options = [hoAutoResize, hoColumnResize, hoDrag, hoShowSortGlyphs, hoVisible]
+        Header.Options = [hoAutoResize, hoColumnResize, hoDrag, hoShowSortGlyphs, hoVisible, hoDisableAnimatedResize, hoAutoResizeInclCaption]
+        Header.PopupMenu = MainForm.popupListHeader
         Images = MainForm.VirtualImageListMain
+        PopupMenu = popupProperties
         TabOrder = 1
         TreeOptions.MiscOptions = [toAcceptOLEDrop, toEditable, toFullRepaintOnResize, toGridExtensions, toInitOnSave, toToggleOnDblClick, toWheelPanning, toEditOnClick]
         TreeOptions.PaintOptions = [toShowButtons, toShowDropmark, toShowHorzGridLines, toShowTreeLines, toShowVertGridLines, toThemeAware, toUseBlendedImages, toUseExplorerTheme, toHideTreeLinesIfThemed]
         TreeOptions.SelectionOptions = [toExtendedFocus]
         OnBeforePaint = listForeignKeysBeforePaint
-        OnClick = treeIndexesClick
+        OnClick = AnyTreeClick
         OnCreateEditor = listForeignKeysCreateEditor
         OnEditing = listForeignKeysEditing
         OnFocusChanged = listForeignKeysFocusChanged
         OnGetText = listForeignKeysGetText
         OnGetImageIndex = listForeignKeysGetImageIndex
         OnNewText = listForeignKeysNewText
+        OnStructureChange = AnyTreeStructureChange
         Columns = <
           item
             Options = [coDraggable, coEnabled, coParentBidiMode, coParentColor, coResizable, coShowDropMark, coVisible, coAllowFocus]
@@ -475,9 +470,91 @@ object frmTableEditor: TfrmTableEditor
           end>
       end
     end
+    object tabCheckConstraints: TTabSheet
+      Caption = 'Check constraints'
+      ImageIndex = 55
+      object tlbCheckConstraints: TToolBar
+        Left = 0
+        Top = 0
+        Width = 66
+        Height = 121
+        Align = alLeft
+        AutoSize = True
+        ButtonWidth = 66
+        Caption = 'tlbCheckConstraints'
+        Images = MainForm.VirtualImageListMain
+        List = True
+        ShowCaptions = True
+        TabOrder = 0
+        object btnAddCheckConstraint: TToolButton
+          Left = 0
+          Top = 0
+          Caption = 'Add'
+          ImageIndex = 45
+          Wrap = True
+          OnClick = btnAddCheckConstraintClick
+        end
+        object btnRemoveCheckConstraint: TToolButton
+          Left = 0
+          Top = 22
+          Caption = 'Remove'
+          Enabled = False
+          ImageIndex = 46
+          Wrap = True
+          OnClick = btnRemoveCheckConstraintClick
+        end
+        object btnClearCheckConstraints: TToolButton
+          Left = 0
+          Top = 44
+          Caption = 'Clear'
+          Enabled = False
+          ImageIndex = 26
+          OnClick = btnClearCheckConstraintsClick
+        end
+      end
+      object listCheckConstraints: TVirtualStringTree
+        Left = 66
+        Top = 0
+        Width = 620
+        Height = 121
+        Align = alClient
+        EditDelay = 0
+        Header.AutoSizeIndex = 1
+        Header.Options = [hoAutoResize, hoColumnResize, hoDrag, hoShowSortGlyphs, hoVisible, hoDisableAnimatedResize, hoAutoResizeInclCaption]
+        Header.PopupMenu = MainForm.popupListHeader
+        Images = MainForm.VirtualImageListMain
+        PopupMenu = popupProperties
+        TabOrder = 1
+        TreeOptions.MiscOptions = [toAcceptOLEDrop, toEditable, toFullRepaintOnResize, toGridExtensions, toInitOnSave, toToggleOnDblClick, toWheelPanning, toEditOnClick]
+        TreeOptions.PaintOptions = [toShowButtons, toShowDropmark, toShowHorzGridLines, toShowTreeLines, toShowVertGridLines, toThemeAware, toUseBlendedImages, toUseExplorerTheme, toHideTreeLinesIfThemed]
+        TreeOptions.SelectionOptions = [toExtendedFocus]
+        OnBeforePaint = listCheckConstraintsBeforePaint
+        OnClick = AnyTreeClick
+        OnCreateEditor = listCheckConstraintsCreateEditor
+        OnFocusChanged = listCheckConstraintsFocusChanged
+        OnGetText = listCheckConstraintsGetText
+        OnGetImageIndex = listCheckConstraintsGetImageIndex
+        OnNewText = listCheckConstraintsNewText
+        OnStructureChange = AnyTreeStructureChange
+        Columns = <
+          item
+            Options = [coDraggable, coEnabled, coParentBidiMode, coParentColor, coResizable, coShowDropMark, coVisible, coAllowFocus, coEditable, coStyleColor]
+            Position = 0
+            Text = 'Name'
+            Width = 200
+          end
+          item
+            Options = [coDraggable, coEnabled, coParentBidiMode, coParentColor, coResizable, coShowDropMark, coVisible, coAllowFocus, coEditable, coStyleColor]
+            Position = 1
+            Text = 'Check clause'
+            Width = 416
+          end>
+      end
+    end
     object tabPartitions: TTabSheet
       Caption = 'Partitions'
       ImageIndex = 186
+      ImageName = 'icons8-pie-chart'
       object SynMemoPartitions: TSynMemo
         Left = 0
         Top = 0
@@ -511,6 +588,7 @@ object frmTableEditor: TfrmTableEditor
     object tabCREATEcode: TTabSheet
       Caption = 'CREATE code'
       ImageIndex = 119
+      ImageName = 'icons8-source-code-other'
       object SynMemoCREATEcode: TSynMemo
         Left = 0
         Top = 0
@@ -544,6 +622,7 @@ object frmTableEditor: TfrmTableEditor
     object tabALTERCode: TTabSheet
       Caption = 'ALTER code'
       ImageIndex = 119
+      ImageName = 'icons8-source-code-other'
       object SynMemoALTERcode: TSynMemo
         Left = 0
         Top = 0
@@ -612,6 +691,7 @@ object frmTableEditor: TfrmTableEditor
         Hint = 'Add column'
         Caption = 'Add'
         ImageIndex = 45
+        ImageName = 'icons8-add'
         OnClick = btnAddColumnClick
       end
       object btnRemoveColumn: TToolButton
@@ -620,6 +700,7 @@ object frmTableEditor: TfrmTableEditor
         Hint = 'Remove column'
         Caption = 'Remove'
         ImageIndex = 46
+        ImageName = 'icons8-delete-button'
         OnClick = btnRemoveColumnClick
       end
       object btnMoveUpColumn: TToolButton
@@ -628,6 +709,7 @@ object frmTableEditor: TfrmTableEditor
         Hint = 'Move up'
         Caption = 'Up'
         ImageIndex = 74
+        ImageName = 'icons8-sort-up'
         OnClick = btnMoveUpColumnClick
       end
       object btnMoveDownColumn: TToolButton
@@ -636,6 +718,7 @@ object frmTableEditor: TfrmTableEditor
         Hint = 'Move down'
         Caption = 'Down'
         ImageIndex = 75
+        ImageName = 'icons8-caret-arrowhead-facing-down'
         OnClick = btnMoveDownColumnClick
       end
     end
@@ -652,19 +735,20 @@ object frmTableEditor: TfrmTableEditor
     DragMode = dmAutomatic
     EditDelay = 0
     Header.AutoSizeIndex = -1
-    Header.Options = [hoColumnResize, hoDblClickResize, hoDrag, hoVisible]
+    Header.Options = [hoColumnResize, hoDblClickResize, hoDrag, hoVisible, hoDisableAnimatedResize, hoAutoResizeInclCaption]
     Header.PopupMenu = MainForm.popupListHeader
     Images = MainForm.VirtualImageListMain
     IncrementalSearch = isAll
     PopupMenu = popupColumns
     TabOrder = 2
     TreeOptions.AutoOptions = [toAutoDropExpand, toAutoScrollOnExpand, toAutoTristateTracking, toAutoChangeScale]
-    TreeOptions.MiscOptions = [toAcceptOLEDrop, toCheckSupport, toEditable, toFullRepaintOnResize, toGridExtensions, toInitOnSave, toToggleOnDblClick, toWheelPanning, toFullRowDrag, toEditOnClick]
+    TreeOptions.MiscOptions = [toAcceptOLEDrop, toCheckSupport, toEditable, toFullRepaintOnResize, toGridExtensions, toInitOnSave, toWheelPanning, toFullRowDrag, toEditOnClick]
     TreeOptions.PaintOptions = [toHotTrack, toShowDropmark, toShowHorzGridLines, toShowVertGridLines, toThemeAware, toUseBlendedImages, toUseExplorerTheme, toHideTreeLinesIfThemed]
     TreeOptions.SelectionOptions = [toExtendedFocus, toFullRowSelect, toMultiSelect, toRightClickSelect]
     WantTabs = True
     OnAfterCellPaint = listColumnsAfterCellPaint
     OnBeforeCellPaint = listColumnsBeforeCellPaint
+    OnChange = listColumnsChange
     OnClick = listColumnsClick
     OnCreateEditor = listColumnsCreateEditor
     OnDragOver = listColumnsDragOver
@@ -787,43 +871,53 @@ object frmTableEditor: TfrmTableEditor
     TabOrder = 3
     OnClick = btnHelpClick
   end
-  object popupIndexes: TPopupMenu
+  object popupProperties: TPopupMenu
     Images = MainForm.VirtualImageListMain
-    Left = 344
+    OnPopup = popupPropertiesPopup
+    Left = 400
     Top = 360
-    object menuAddIndex: TMenuItem
-      Caption = 'Add index'
+    object Copy1: TMenuItem
+      Action = MainForm.actCopy
+    end
+    object menuAddProperty: TMenuItem
+      Caption = 'Add'
       ImageIndex = 45
+      ImageName = 'icons8-add'
       ShortCut = 16429
-      OnClick = btnAddIndexClick
+      OnClick = menuAddPropertyClick
     end
     object menuAddIndexColumn: TMenuItem
       Caption = 'Add column'
       ImageIndex = 91
+      ImageName = 'icons8-rhombus-add'
       ShortCut = 24621
       OnClick = menuAddIndexColumnClick
     end
-    object menuRemoveIndex: TMenuItem
+    object menuRemoveProperty: TMenuItem
       Caption = 'Remove'
       ImageIndex = 46
+      ImageName = 'icons8-delete-button'
       ShortCut = 16430
-      OnClick = btnRemoveIndexClick
+      OnClick = menuRemovePropertyClick
     end
-    object menuClearIndexes: TMenuItem
+    object menuClearProperties: TMenuItem
       Caption = 'Clear'
       ImageIndex = 26
+      ImageName = 'icons8-close-button'
       ShortCut = 24622
-      OnClick = btnClearIndexesClick
+      OnClick = menuClearPropertiesClick
     end
     object menuMoveUpIndex: TMenuItem
       Caption = 'Up'
       ImageIndex = 74
+      ImageName = 'icons8-sort-up'
       ShortCut = 16469
       OnClick = btnMoveUpIndexClick
     end
     object menuMoveDownIndex: TMenuItem
       Caption = 'Down'
       ImageIndex = 75
+      ImageName = 'icons8-caret-arrowhead-facing-down'
       ShortCut = 16452
       OnClick = btnMoveDownIndexClick
     end
@@ -839,11 +933,13 @@ object frmTableEditor: TfrmTableEditor
     object menuCopyColumns: TMenuItem
       Caption = 'Copy selected columns'
       ImageIndex = 155
+      ImageName = 'icons8-copy-rows'
       OnClick = menuCopyColumnsClick
     end
     object menuPasteColumns: TMenuItem
       Caption = 'Paste columns'
       ImageIndex = 156
+      ImageName = 'icons8-paste-rows'
       OnClick = menuPasteColumnsClick
     end
     object N2: TMenuItem
@@ -852,24 +948,28 @@ object frmTableEditor: TfrmTableEditor
     object menuAddColumn: TMenuItem
       Caption = 'Add column'
       ImageIndex = 45
+      ImageName = 'icons8-add'
       ShortCut = 16429
       OnClick = btnAddColumnClick
     end
     object menuRemoveColumn: TMenuItem
       Caption = 'Remove column'
       ImageIndex = 46
+      ImageName = 'icons8-delete-button'
       ShortCut = 16430
       OnClick = btnRemoveColumnClick
     end
     object menuMoveUpColumn: TMenuItem
       Caption = 'Move up'
       ImageIndex = 74
+      ImageName = 'icons8-sort-up'
       ShortCut = 16469
       OnClick = btnMoveUpColumnClick
     end
     object menuMoveDownColumn: TMenuItem
       Caption = 'Move down'
       ImageIndex = 75
+      ImageName = 'icons8-caret-arrowhead-facing-down'
       ShortCut = 16452
       OnClick = btnMoveDownColumnClick
     end
@@ -879,10 +979,12 @@ object frmTableEditor: TfrmTableEditor
     object menuCreateIndex: TMenuItem
       Caption = 'Create new index'
       ImageIndex = 13
+      ImageName = 'icons8-lightning-bolt-100'
     end
     object menuAddToIndex: TMenuItem
       Caption = 'Add to index'
       ImageIndex = 13
+      ImageName = 'icons8-lightning-bolt-100'
     end
   end
 end

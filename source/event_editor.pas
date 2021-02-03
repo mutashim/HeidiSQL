@@ -5,7 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls, SynEdit, SynMemo, SynRegExpr, ComCtrls, ExtCtrls, WideStrUtils,
-  apphelpers, dbconnection, gnugettext;
+  apphelpers, dbconnection, dbstructures, gnugettext;
 
 type
   TFrame = TDBObjectEditor;
@@ -77,7 +77,6 @@ uses main;
 constructor TfrmEventEditor.Create(AOwner: TComponent);
 begin
   inherited;
-  TranslateComponent(Self);
   Mainform.SynCompletionProposal.AddEditor(SynMemoBody);
   comboEveryInterval.Items := Explode('|', 'YEAR|QUARTER|MONTH|DAY|HOUR|MINUTE|WEEK|SECOND|YEAR_MONTH|'+
     'DAY_HOUR|DAY_MINUTE|DAY_SECOND|HOUR_MINUTE|HOUR_SECOND|MINUTE_SECOND');
@@ -237,7 +236,7 @@ begin
   try
     MainForm.ActiveConnection.Query(sql);
     DBObject.Name := editName.Text;
-    DBObject.CreateCode := '';
+    DBObject.UnloadDetails;
     tabALTERcode.TabVisible := DBObject.Name <> '';
     Mainform.UpdateEditorTab;
     Mainform.RefreshTree(DBObject);
@@ -248,7 +247,7 @@ begin
     CreateCodeValid := False;
     UpdateSQLcode;
   except
-    on E:EDatabaseError do begin
+    on E:EDbError do begin
       ErrorDialog(E.Message);
       Result := mrAbort;
     end;
@@ -281,22 +280,22 @@ begin
   if radioOnce.Checked then begin
     d := dateOnce.DateTime;
     ReplaceTime(d, timeOnce.DateTime);
-    Result := Result + 'AT ' + esc(DateTimeToStr(d)) + CRLF;
+    Result := Result + 'AT ' + DBObject.Connection.EscapeString(DateTimeToStr(d)) + CRLF;
   end else begin
     if udEveryQuantity.Enabled then
       Quantity := IntToStr(udEveryQuantity.Position)
     else
-      Quantity := esc(editEveryQuantity.Text);
+      Quantity := DBObject.Connection.EscapeString(editEveryQuantity.Text);
     Result := Result + 'EVERY ' + Quantity + ' ' + comboEveryInterval.Text;
     if chkStarts.Checked then begin
       d := dateStarts.DateTime;
       ReplaceTime(d, timeStarts.DateTime);
-      Result := Result + ' STARTS ' + esc(DateTimeToStr(d));
+      Result := Result + ' STARTS ' + DBObject.Connection.EscapeString(DateTimeToStr(d));
     end;
     if chkEnds.Checked then begin
       d := dateEnds.DateTime;
       ReplaceTime(d, timeEnds.DateTime);
-      Result := Result + ' ENDS ' + esc(DateTimeToStr(d));
+      Result := Result + ' ENDS ' + DBObject.Connection.EscapeString(DateTimeToStr(d));
     end;
     Result := Result + CRLF;
   end;
@@ -308,7 +307,7 @@ begin
   if (DBObject.Name <> '') and (DBObject.Name <> editName.Text) then
     Result := Result + CRLF + #9 + 'RENAME TO ' + DBObject.Connection.QuoteIdent(editName.Text);
   Result := Result + CRLF + #9 + UpperCase(grpState.Items[grpState.ItemIndex]);
-  Result := Result + CRLF + #9 + 'COMMENT ' + esc(editComment.Text);
+  Result := Result + CRLF + #9 + 'COMMENT ' + DBObject.Connection.EscapeString(editComment.Text);
   Result := Result + CRLF + #9 + 'DO ' + SynMemoBody.Text;
 end;
 
@@ -373,7 +372,7 @@ end;
 procedure TfrmEventEditor.comboDefinerDropDown(Sender: TObject);
 begin
   // Populate definers from mysql.user
-  (Sender as TComboBox).Items.Assign(GetDefiners);
+  (Sender as TComboBox).Items.Assign(DBObject.Connection.AllUserHostCombinations);
 end;
 
 

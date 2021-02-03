@@ -5,7 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Classes, Controls, Forms, Dialogs, StdCtrls,
   ShellApi, Math, Graphics, ComCtrls, ToolWin, extra_controls,
-  dbconnection, mysql_structures, VirtualTrees, grideditlinks, SynRegExpr, gnugettext, apphelpers;
+  dbconnection, dbstructures, VirtualTrees, grideditlinks, SynRegExpr, gnugettext, apphelpers;
 
 type
   TColInfo = class
@@ -25,7 +25,7 @@ type
   end;
   PFileInfo = ^TFileInfo;
 
-  TfrmInsertFiles = class(TFormWithSizeGrip)
+  TfrmInsertFiles = class(TExtForm)
     btnInsert: TButton;
     btnCancel: TButton;
     OpenDialog: TOpenDialog;
@@ -116,7 +116,7 @@ const
 
 procedure TfrmInsertFiles.FormCreate(Sender: TObject);
 begin
-  TranslateComponent(Self);
+  HasSizeGrip := True;
   ListFiles.Images := GetSystemImageList;
   DragAcceptFiles(Handle, True);
   MainForm.RestoreListSetup(ListColumns);
@@ -272,7 +272,7 @@ begin
   // Start cell editor
   Grid := Sender as TVirtualStringTree;
   if Column = ColValue then begin
-    EnumEditor := TEnumEditorLink.Create(Grid);
+    EnumEditor := TEnumEditorLink.Create(Grid, True);
     EnumEditor.AllowCustomText := True;
     EnumEditor.ValueList := TStringList.Create;
     EnumEditor.ValueList.Text := 'NULL'+CRLF+
@@ -353,9 +353,8 @@ begin
   // Populate combobox with columns from selected table
   ListColumns.Clear;
   if comboTables.ItemIndex > -1 then begin
-    Columns := TTableColumnList.Create(True);
     Selected := FConnection.FindObject(comboDBs.Text, comboTables.Text);
-    FConnection.ParseTableStructure(Selected.CreateCode, Columns, nil, nil);
+    Columns := Selected.TableColumns;
     Node := nil;
     for Col in Columns do begin
       ColInfo := TColInfo.Create;
@@ -605,6 +604,11 @@ begin
   while Assigned(Node) do begin
     ListFiles.FocusedNode := Node;
     FileInfo := ListFiles.GetNodeData(Node);
+    if not FileExists(FileInfo.Filename) then begin
+      ErrorDialog('File does not exist: '+FileInfo.Filename);
+      Node := ListFiles.GetNextSibling(Node);
+      Continue;
+    end;
     FileSize := _GetFileSize(FileInfo.Filename);
     FileReadDone := False;
     sql := 'INSERT INTO '+FConnection.QuotedDbAndTableName(comboDBs.Text, comboTables.Text) + ' (';
@@ -630,24 +634,24 @@ begin
               // Import binaries as-is (byte for byte), and auto-detect encoding of text files.
               if FileInfo.IsBinary then begin
                 FileContent := '';
-                if FConnection.Parameters.IsMySQL then
+                if FConnection.Parameters.IsAnyMySQL then
                   FileContent := '_binary ';
                 FileContent := FileContent + '0x' + BinToWideHex(ReadBinaryFile(FileInfo.Filename, 0))
               end else
-                FileContent := esc(ReadTextfile(FileInfo.Filename, nil));
+                FileContent := FConnection.EscapeString(ReadTextfile(FileInfo.Filename, nil));
               FileReadDone := True;
             end;
             Value := FileContent;
           end else begin
             Value := StringReplace(Value, '%filesize%', IntToStr(FileSize), [rfReplaceAll]);
-            Value := StringReplace(Value, '%filename%', esc(ExtractFileName(FileInfo.Filename), False, False), [rfReplaceAll]);
-            Value := StringReplace(Value, '%filepath%', esc(ExtractFilePath(FileInfo.Filename), False, False), [rfReplaceAll]);
+            Value := StringReplace(Value, '%filename%', FConnection.EscapeString(ExtractFileName(FileInfo.Filename), False, False), [rfReplaceAll]);
+            Value := StringReplace(Value, '%filepath%', FConnection.EscapeString(ExtractFilePath(FileInfo.Filename), False, False), [rfReplaceAll]);
             FileAge(FileInfo.Filename, FileDate);
             DecodeDate(FileDate, y, m, d);
             DecodeTime(FileDate, h, mi, s, ms);
-            Value := StringReplace(Value, '%filedate%', esc(Format('%.4d-%.2d-%.2d', [y,m,d]), False, False), [rfReplaceAll]);
-            Value := StringReplace(Value, '%filedatetime%', esc(Format('%.4d-%.2d-%.2d %.2d:%.2d:%.2d', [y,m,d,h,mi,s]), False, False), [rfReplaceAll]);
-            Value := StringReplace(Value, '%filetime%', esc(Format('%.2d:%.2d:%.2d', [h,mi,s]), False, False), [rfReplaceAll]);
+            Value := StringReplace(Value, '%filedate%', FConnection.EscapeString(Format('%.4d-%.2d-%.2d', [y,m,d]), False, False), [rfReplaceAll]);
+            Value := StringReplace(Value, '%filedatetime%', FConnection.EscapeString(Format('%.4d-%.2d-%.2d %.2d:%.2d:%.2d', [y,m,d,h,mi,s]), False, False), [rfReplaceAll]);
+            Value := StringReplace(Value, '%filetime%', FConnection.EscapeString(Format('%.2d:%.2d:%.2d', [h,mi,s]), False, False), [rfReplaceAll]);
           end;
         end;
         sql := sql + Value + ', ';
@@ -661,7 +665,7 @@ begin
       FConnection.Query(sql);
       Mainform.ProgressStep;
     except
-      on E:EDatabaseError do begin
+      on E:EDbError do begin
         Screen.Cursor := crDefault;
         MainForm.SetProgressState(pbsError);
         ErrorDialog(E.Message);

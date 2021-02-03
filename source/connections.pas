@@ -11,14 +11,14 @@ interface
 uses
   Windows, SysUtils, Classes, Controls, Forms, Dialogs, StdCtrls, ExtCtrls, ComCtrls,
   VirtualTrees, Menus, Graphics, Generics.Collections, ActiveX, extra_controls, Messages,
-  dbconnection, gnugettext;
+  dbconnection, gnugettext, SynRegExpr, System.Types, Vcl.GraphUtil, ADODB, StrUtils,
+  System.Math, System.Actions, Vcl.ActnList, Vcl.StdActns;
 
 type
-  Tconnform = class(TFormWithSizeGrip)
+  Tconnform = class(TExtForm)
     btnCancel: TButton;
     btnOpen: TButton;
     btnSave: TButton;
-    ListSessions: TVirtualStringTree;
     btnNew: TButton;
     btnDelete: TButton;
     popupSessions: TPopupMenu;
@@ -38,14 +38,8 @@ type
     updownPort: TUpDown;
     editPassword: TEdit;
     editUsername: TEdit;
-    editHost: TEdit;
+    editHost: TButtonedEdit;
     tabAdvanced: TTabSheet;
-    lblSSLPrivateKey: TLabel;
-    lblSSLCACertificate: TLabel;
-    lblSSLCertificate: TLabel;
-    editSSLPrivateKey: TButtonedEdit;
-    editSSLCACertificate: TButtonedEdit;
-    editSSLCertificate: TButtonedEdit;
     tabStatistics: TTabSheet;
     lblLastConnectLeft: TLabel;
     lblCounterLeft: TLabel;
@@ -62,13 +56,12 @@ type
     lblSSHPassword: TLabel;
     editSSHPlinkExe: TButtonedEdit;
     lblSSHPlinkExe: TLabel;
-    comboNetType: TComboBox;
+    comboNetType: TComboBoxEx;
     lblSSHhost: TLabel;
     editSSHhost: TEdit;
     editSSHport: TEdit;
     editSSHPrivateKey: TButtonedEdit;
     lblSSHkeyfile: TLabel;
-    lblDownloadPlink: TLabel;
     editDatabases: TButtonedEdit;
     lblDatabase: TLabel;
     chkLoginPrompt: TCheckBox;
@@ -76,10 +69,10 @@ type
     editSSHTimeout: TEdit;
     updownSSHTimeout: TUpDown;
     chkWindowsAuth: TCheckBox;
+    chkCleartextPluginEnabled: TCheckBox;
     splitterMain: TSplitter;
     tabStart: TTabSheet;
     lblHelp: TLabel;
-    chkWantSSL: TCheckBox;
     btnImportSettings: TButton;
     timerSettingsImport: TTimer;
     popupNew: TPopupMenu;
@@ -107,19 +100,41 @@ type
     updownQueryTimeout: TUpDown;
     menuMoreGeneralHelp: TMenuItem;
     menuRename: TMenuItem;
-    lblSSLcipher: TLabel;
-    editSSLcipher: TEdit;
     lblKeepAlive: TLabel;
     editKeepAlive: TEdit;
     updownKeepAlive: TUpDown;
     lblCounterRight2: TLabel;
     lblCounterLeft2: TLabel;
-    pnlDpiHelperSettings: TPanel;
-    pnlDpiHelperSshTunnel: TPanel;
-    pnlDpiHelperAdvanced: TPanel;
     TimerButtonAnimation: TTimer;
     lblBackgroundColor: TLabel;
     ColorBoxBackgroundColor: TColorBox;
+    comboLibrary: TComboBox;
+    lblLibrary: TLabel;
+    pnlLeft: TPanel;
+    ListSessions: TVirtualStringTree;
+    editSearch: TButtonedEdit;
+    popupHost: TPopupMenu;
+    menuFindDatabaseFiles: TMenuItem;
+    menuAddDatabaseFiles: TMenuItem;
+    lblIgnoreDatabasePattern: TLabel;
+    editIgnoreDatabasePattern: TEdit;
+    ActionListConnections: TActionList;
+    actFilter: TAction;
+    Filter1: TMenuItem;
+    chkLogFileDdl: TCheckBox;
+    editLogFilePath: TButtonedEdit;
+    tabSSL: TTabSheet;
+    chkWantSSL: TCheckBox;
+    lblSSLPrivateKey: TLabel;
+    lblSSLCACertificate: TLabel;
+    lblSSLCertificate: TLabel;
+    lblSSLcipher: TLabel;
+    editSSLcipher: TEdit;
+    editSSLCertificate: TButtonedEdit;
+    editSSLCACertificate: TButtonedEdit;
+    editSSLPrivateKey: TButtonedEdit;
+    lblLogFile: TLabel;
+    chkLogFileDml: TCheckBox;
     procedure FormCreate(Sender: TObject);
     procedure btnOpenClick(Sender: TObject);
     procedure FormShow(Sender: TObject);
@@ -149,7 +164,6 @@ type
     procedure PickFile(Sender: TObject);
     procedure editSSHPlinkExeChange(Sender: TObject);
     procedure editHostChange(Sender: TObject);
-    procedure lblDownloadPlinkClick(Sender: TObject);
     procedure editDatabasesRightButtonClick(Sender: TObject);
     procedure chkLoginPromptClick(Sender: TObject);
     procedure ListSessionsGetNodeDataSize(Sender: TBaseVirtualTree;
@@ -169,15 +183,31 @@ type
     procedure btnMoreClick(Sender: TObject);
     procedure menuRenameClick(Sender: TObject);
     procedure TimerButtonAnimationTimer(Sender: TObject);
+    procedure ColorBoxBackgroundColorGetColors(Sender: TCustomColorBox;
+      Items: TStrings);
+    procedure editTrim(Sender: TObject);
+    procedure editSearchChange(Sender: TObject);
+    procedure editSearchRightButtonClick(Sender: TObject);
+    procedure editHostDblClick(Sender: TObject);
+    procedure ListSessionsNodeDblClick(Sender: TBaseVirtualTree;
+      const HitInfo: THitInfo);
+    procedure FindAddDatabaseFilesClick(Sender: TObject);
+    procedure FormResize(Sender: TObject);
+    procedure ListSessionsBeforeCellPaint(Sender: TBaseVirtualTree;
+      TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
+      CellPaintMode: TVTCellPaintMode; CellRect: TRect; var ContentRect: TRect);
+    procedure actFilterExecute(Sender: TObject);
   private
     { Private declarations }
     FLoaded: Boolean;
     FSessionModified, FOnlyPasswordModified: Boolean;
     FServerVersion: String;
-    FSessionColor: TColor;
     FSettingsImportWaitTime: Cardinal;
     FPopupDatabases: TPopupMenu;
     FButtonAnimationStep: Integer;
+    FLastSelectedNetTypeGroup: TNetTypeGroup;
+    function GetSelectedNetType: TNetType;
+    procedure SetSelectedNetType(Value: TNetType);
     procedure RefreshSessions(ParentNode: PVirtualNode);
     function SelectedSessionPath: String;
     function CurrentParams: TConnectionParameters;
@@ -187,6 +217,8 @@ type
     procedure MenuDatabasesClick(Sender: TObject);
     procedure WMNCLBUTTONDOWN(var Msg: TWMNCLButtonDown) ; message WM_NCLBUTTONDOWN;
     procedure WMNCLBUTTONUP(var Msg: TWMNCLButtonUp) ; message WM_NCLBUTTONUP;
+    procedure RefreshBackgroundColors;
+    property SelectedNetType: TNetType read GetSelectedNetType write SetSelectedNetType;
   public
     { Public declarations }
   end;
@@ -222,18 +254,16 @@ end;
 
 procedure Tconnform.FormCreate(Sender: TObject);
 var
-  LastActiveSession, NetTypeStr: String;
-  LastSessions: TStringList;
-  PSess: PConnectionParameters;
+  NetTypeStr, FilenameHint: String;
   nt: TNetType;
-  Node: PVirtualNode;
+  ntg: TNetTypeGroup;
   Params: TConnectionParameters;
+  ComboItem: TComboExItem;
+  Placeholders: TStringList;
+  i: Integer;
 begin
   // Fix GUI stuff
-  TranslateComponent(Self);
-  FixDropDownButtons(Self);
-  lblDownloadPlink.Font.Style := [fsUnderline];
-  lblDownloadPlink.Font.Color := clBlue;
+  HasSizeGrip := True;
 
   Width := AppSettings.ReadInt(asSessionManagerWindowWidth);
   Height := AppSettings.ReadInt(asSessionManagerWindowHeight);
@@ -242,7 +272,7 @@ begin
   // Move to visible area if window was on a now plugged off monitor previously
   MakeFullyVisible;
 
-  ListSessions.Width := AppSettings.ReadInt(asSessionManagerListWidth);
+  pnlLeft.Width := AppSettings.ReadInt(asSessionManagerListWidth);
   splitterMain.OnMoved(Sender);
   FixVT(ListSessions);
   MainForm.RestoreListSetup(ListSessions);
@@ -254,31 +284,31 @@ begin
 
   comboNetType.Clear;
   Params := TConnectionParameters.Create;
-  for nt:=Low(nt) to High(nt) do begin
-    NetTypeStr := Params.NetTypeName(nt, True);
-    if RunningOnWindows10S and (not Params.IsCompatibleToWin10S(nt)) then begin
-      NetTypeStr := NetTypeStr + ' ['+_('Does not work on Windows 10 S')+']';
+  for ntg := Low(ntg) to High(ntg) do begin
+    for nt:=Low(nt) to High(nt) do begin
+      Params.NetType := nt;
+      if Params.GetNetTypeGroup <> ntg then
+        Continue;
+      NetTypeStr := Params.NetTypeName(True);
+      if RunningOnWindows10S and (not Params.IsCompatibleToWin10S) then begin
+        NetTypeStr := NetTypeStr + ' ['+_('Does not work on Windows 10 S')+']';
+      end;
+      ComboItem := TComboExItem.Create(comboNetType.ItemsEx);
+      ComboItem.Caption := NetTypeStr;
+      ComboItem.ImageIndex := Params.ImageIndex;
+      ComboItem.Data := Pointer(nt);
     end;
-    comboNetType.Items.Add(NetTypeStr);
   end;
   Params.Free;
 
-  // Init sessions tree
-  RefreshSessions(nil);
-
-  // Focus last session
-  SelectNode(ListSessions, nil);
-  LastSessions := Explode(DELIM, AppSettings.ReadString(asLastSessions));
-  LastActiveSession := AppSettings.ReadString(asLastActiveSession);
-  if (LastActiveSession = '') and (LastSessions.Count > 0) then
-    LastActiveSession := LastSessions[0];
-  Node := ListSessions.GetFirst;
-  while Assigned(Node) do begin
-    PSess := ListSessions.GetNodeData(Node);
-    if PSess.SessionPath = LastActiveSession then
-      SelectNode(ListSessions, Node);
-    Node := ListSessions.GetNext(Node);
+  // Create filename placeholders hint
+  Placeholders := GetOutputFilenamePlaceholders;
+  FilenameHint := _('Allows the following replacement patterns:');
+  for i:=0 to Placeholders.Count-1 do begin
+    FilenameHint := FilenameHint + CRLF + '%' + Placeholders.Names[i] + ': ' + Placeholders.ValueFromIndex[i];
   end;
+  Placeholders.Free;
+  editLogFilePath.Hint := FilenameHint;
 end;
 
 
@@ -291,16 +321,19 @@ var
   SessNode: PVirtualNode;
 begin
   // Initialize session tree
-  if ParentNode=nil then
-    ListSessions.Clear
-  else
+  // And while we're at it, collect custom colors for background color selector
+  if ParentNode=nil then begin
+    ListSessions.Clear;
+  end else begin
     ListSessions.DeleteChildren(ParentNode, True);
+  end;
   SessionNames := NodeSessionNames(ParentNode, RegKey);
   for i:=0 to SessionNames.Count-1 do begin
     Params := TConnectionParameters.Create(RegKey+SessionNames[i]);
     SessNode := ListSessions.AddChild(ParentNode, PConnectionParameters(Params));
-    if Params.IsFolder then
+    if Params.IsFolder then begin
       RefreshSessions(SessNode);
+    end;
   end;
 end;
 
@@ -308,7 +341,7 @@ end;
 procedure Tconnform.FormDestroy(Sender: TObject);
 begin
   // Save GUI stuff
-  AppSettings.WriteInt(asSessionManagerListWidth, ListSessions.Width);
+  AppSettings.WriteInt(asSessionManagerListWidth, pnlLeft.Width);
   AppSettings.WriteInt(asSessionManagerWindowWidth, Width);
   AppSettings.WriteInt(asSessionManagerWindowHeight, Height);
   AppSettings.WriteInt(asSessionManagerWindowLeft, Left);
@@ -316,6 +349,11 @@ begin
   MainForm.SaveListSetup(ListSessions);
 end;
 
+
+procedure Tconnform.FormResize(Sender: TObject);
+begin
+  splitterMainMoved(splitterMain);
+end;
 
 procedure Tconnform.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 begin
@@ -333,7 +371,29 @@ end;
 
 
 procedure Tconnform.FormShow(Sender: TObject);
+var
+  LastActiveSession: String;
+  LastSessions: TStringList;
+  PSess: PConnectionParameters;
+  Node: PVirtualNode;
 begin
+  // Init sessions tree
+  RefreshSessions(nil);
+
+  // Focus last session
+  SelectNode(ListSessions, nil);
+  LastSessions := Explode(DELIM, AppSettings.ReadString(asLastSessions));
+  LastActiveSession := AppSettings.ReadString(asLastActiveSession);
+  if (LastActiveSession = '') and (LastSessions.Count > 0) then
+    LastActiveSession := LastSessions[0];
+  Node := ListSessions.GetFirst;
+  while Assigned(Node) do begin
+    PSess := ListSessions.GetNodeData(Node);
+    if PSess.SessionPath = LastActiveSession then
+      SelectNode(ListSessions, Node);
+    Node := ListSessions.GetNext(Node);
+  end;
+
   ListSessions.SetFocus;
   // Reactivate statistics
   TimerStatistics.Enabled := True;
@@ -342,18 +402,40 @@ begin
 end;
 
 
+function Tconnform.GetSelectedNetType: TNetType;
+begin
+  Result := TNetType(comboNetType.ItemsEx[comboNetType.ItemIndex].Data);
+end;
+
+
+procedure Tconnform.SetSelectedNetType(Value: TNetType);
+var
+  i: Integer;
+begin
+  for i:=0 to comboNetType.ItemsEx.Count-1 do begin
+    if TNetType(comboNetType.ItemsEx[i].Data) = Value then begin
+      comboNetType.ItemIndex := i;
+      Break;
+    end;
+  end;
+end;
+
+
 procedure Tconnform.btnOpenClick(Sender: TObject);
 var
   Connection: TDBConnection;
+  Params: TConnectionParameters;
 begin
   // Connect to selected session
+  Params := CurrentParams;
+
   if not btnOpen.Enabled then
     Exit;
   btnOpen.Enabled := False;
   FButtonAnimationStep := 0;
   TimerButtonAnimation.Enabled := True;
   Screen.Cursor := crHourglass;
-  if Mainform.InitConnection(CurrentParams, True, Connection) then
+  if Mainform.InitConnection(Params, True, Connection) then
     ModalResult := mrOK
   else begin
     TimerStatistics.OnTimer(Sender);
@@ -369,6 +451,7 @@ end;
 procedure Tconnform.btnSaveClick(Sender: TObject);
 var
   Sess: PConnectionParameters;
+  Conn: TDBConnection;
 begin
   // Overtake edited values for current parameter object and save to registry
   Sess := ListSessions.GetNodeData(ListSessions.FocusedNode);
@@ -377,14 +460,16 @@ begin
   Sess.Password := editPassword.Text;
   Sess.LoginPrompt := chkLoginPrompt.Checked;
   Sess.WindowsAuth := chkWindowsAuth.Checked;
+  Sess.CleartextPluginEnabled := chkCleartextPluginEnabled.Checked;
   Sess.Port := updownPort.Position;
-  Sess.NetType := TNetType(comboNetType.ItemIndex);
+  Sess.NetType := SelectedNetType;
   Sess.Compressed := chkCompressed.Checked;
   Sess.QueryTimeout := updownQueryTimeout.Position;
   Sess.KeepAlive := updownKeepAlive.Position;
   Sess.LocalTimeZone := chkLocalTimeZone.Checked;
   Sess.FullTableStatus := chkFullTableStatus.Checked;
   Sess.SessionColor := ColorBoxBackgroundColor.Selected;
+  Sess.LibraryOrProvider := comboLibrary.Text;
   Sess.AllDatabasesStr := editDatabases.Text;
   Sess.Comment := memoComment.Text;
   Sess.StartupScriptFilename := editStartupScript.Text;
@@ -401,11 +486,23 @@ begin
   Sess.SSLCertificate := editSSLCertificate.Text;
   Sess.SSLCACertificate := editSSLCACertificate.Text;
   Sess.SSLCipher := editSSLCipher.Text;
+  Sess.IgnoreDatabasePattern := editIgnoreDatabasePattern.Text;
+  Sess.LogFileDdl := chkLogFileDdl.Checked;
+  Sess.LogFileDml := chkLogFileDml.Checked;
+  Sess.LogFilePath := editLogFilePath.Text;
   Sess.SaveToRegistry;
 
   FSessionModified := False;
   ListSessions.Invalidate;
   ValidateControls;
+
+  // Apply session color (and othher settings) to opened connection(s)
+  for Conn in MainForm.Connections do begin
+    if Conn.Parameters.SessionPath = Sess.SessionPath then begin
+      Conn.Parameters.SessionColor := Sess.SessionColor;
+      MainForm.DBtree.Repaint;
+    end;
+  end;
 end;
 
 
@@ -521,6 +618,11 @@ begin
 end;
 
 
+procedure Tconnform.actFilterExecute(Sender: TObject);
+begin
+  editSearch.SetFocus;
+end;
+
 procedure Tconnform.btnDeleteClick(Sender: TObject);
 var
   Sess: PConnectionParameters;
@@ -549,8 +651,12 @@ function Tconnform.SelectedSessionPath: String;
 var
   Sess: PConnectionParameters;
 begin
-  Sess := ListSessions.GetNodeData(ListSessions.FocusedNode);
-  Result := Sess.SessionPath;
+  if not Assigned(ListSessions.FocusedNode) then
+    Result := ''
+  else begin
+    Sess := ListSessions.GetNodeData(ListSessions.FocusedNode);
+    Result := Sess.SessionPath;
+  end;
 end;
 
 
@@ -565,19 +671,22 @@ begin
   end else begin
     Result := TConnectionParameters.Create;
     Result.SessionPath := SelectedSessionPath;
-    Result.SessionColor := FSessionColor;
-    Result.NetType := TNetType(comboNetType.ItemIndex);
+    Result.Counter := FromReg.Counter;
+    Result.SessionColor := ColorBoxBackgroundColor.Selected;
+    Result.NetType := SelectedNetType;
     Result.ServerVersion := FServerVersion;
     Result.Hostname := editHost.Text;
     Result.Username := editUsername.Text;
     Result.Password := editPassword.Text;
     Result.LoginPrompt := chkLoginPrompt.Checked;
     Result.WindowsAuth := chkWindowsAuth.Checked;
+    Result.CleartextPluginEnabled := chkCleartextPluginEnabled.Checked;
     if updownPort.Enabled then
       Result.Port := updownPort.Position
     else
       Result.Port := 0;
     Result.AllDatabasesStr := editDatabases.Text;
+    Result.LibraryOrProvider := comboLibrary.Text;
     Result.Comment := memoComment.Text;
     Result.SSHHost := editSSHHost.Text;
     Result.SSHPort := MakeInt(editSSHPort.Text);
@@ -599,6 +708,10 @@ begin
     Result.LocalTimeZone := chkLocalTimeZone.Checked;
     Result.FullTableStatus := chkFullTableStatus.Checked;
     Result.SessionColor := ColorBoxBackgroundColor.Selected;
+    Result.IgnoreDatabasePattern := editIgnoreDatabasePattern.Text;
+    Result.LogFileDdl := chkLogFileDdl.Checked;
+    Result.LogFileDml := chkLogFileDml.Checked;
+    Result.LogFilePath := editLogFilePath.Text;
   end;
 end;
 
@@ -692,11 +805,27 @@ begin
 end;
 
 
+procedure Tconnform.ListSessionsBeforeCellPaint(Sender: TBaseVirtualTree;
+  TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
+  CellPaintMode: TVTCellPaintMode; CellRect: TRect; var ContentRect: TRect);
+var
+  Session: PConnectionParameters;
+begin
+  // Paint custom background color
+  if CellPaintMode=cpmPaint then begin
+    Session := Sender.GetNodeData(Node);
+    if Session.SessionColor <> AppSettings.GetDefaultInt(asTreeBackground) then begin
+      TargetCanvas.Brush.Color := Session.SessionColor;
+      TargetCanvas.FillRect(CellRect);
+    end;
+  end;
+end;
+
 procedure Tconnform.ListSessionsCreateEditor(Sender: TBaseVirtualTree; Node: PVirtualNode;
   Column: TColumnIndex; out EditLink: IVTEditLink);
 begin
   // Use our own text editor to rename a session
-  EditLink := TInplaceEditorLink.Create(Sender as TVirtualStringTree);
+  EditLink := TInplaceEditorLink.Create(Sender as TVirtualStringTree, True);
 end;
 
 
@@ -829,20 +958,28 @@ begin
   end else begin
     PageControlDetails.ActivePage := tabSettings;
 
-    comboNetType.ItemIndex := Integer(Sess.NetType);
+    SelectedNetType := Sess.NetType;
+    FLastSelectedNetTypeGroup := Sess.NetTypeGroup;
     editHost.Text := Sess.Hostname;
     editUsername.Text := Sess.Username;
     editPassword.Text := Sess.Password;
     chkLoginPrompt.Checked := Sess.LoginPrompt;
     chkWindowsAuth.Checked := Sess.WindowsAuth;
+    chkCleartextPluginEnabled.Checked := Sess.CleartextPluginEnabled;
     updownPort.Position := Sess.Port;
     chkCompressed.Checked := Sess.Compressed;
     updownQueryTimeout.Position := Sess.QueryTimeout;
     updownKeepAlive.Position := Sess.KeepAlive;
     chkLocalTimeZone.Checked := Sess.LocalTimeZone;
     chkFullTableStatus.Checked := Sess.FullTableStatus;
+    RefreshBackgroundColors;
     ColorBoxBackgroundColor.Selected := Sess.SessionColor;
     editDatabases.Text := Sess.AllDatabasesStr;
+    comboLibrary.Items := Sess.GetLibraries;
+    comboLibrary.ItemIndex := comboLibrary.Items.IndexOf(Sess.LibraryOrProvider);
+    if (comboLibrary.ItemIndex = -1) and (comboLibrary.Items.Count > 0) then begin
+      comboLibrary.ItemIndex := 0;
+    end;
     memoComment.Text := Sess.Comment;
     editStartupScript.Text := Sess.StartupScriptFilename;
     editSSHPlinkExe.Text := Sess.SSHPlinkExe;
@@ -858,8 +995,11 @@ begin
     editSSLCertificate.Text := Sess.SSLCertificate;
     editSSLCACertificate.Text := Sess.SSLCACertificate;
     editSSLCipher.Text := Sess.SSLCipher;
+    editIgnoreDatabasePattern.Text := Sess.IgnoreDatabasePattern;
+    chkLogFileDdl.Checked := Sess.LogFileDdl;
+    chkLogFileDml.Checked := Sess.LogFileDml;
+    editLogFilePath.Text := Sess.LogFilePath;
     FServerVersion := Sess.ServerVersion;
-    FSessionColor := Sess.SessionColor;
   end;
 
   FLoaded := True;
@@ -873,9 +1013,17 @@ begin
 end;
 
 
+procedure Tconnform.RefreshBackgroundColors;
+begin
+  // Trigger OnGetColors event
+  ColorBoxBackgroundColor.Style := ColorBoxBackgroundColor.Style - [cbCustomColors];
+  ColorBoxBackgroundColor.Style := ColorBoxBackgroundColor.Style + [cbCustomColors];
+end;
+
+
 procedure Tconnform.TimerStatisticsTimer(Sender: TObject);
 var
-  LastConnect, Created, DummyDate: TDateTime;
+  LastConnect, Created: TDateTime;
 begin
   // Continuously update statistics labels
   lblLastConnectRight.Caption := _('unknown or never');
@@ -891,15 +1039,17 @@ begin
     Exit;
 
   AppSettings.SessionPath := SelectedSessionPath;
-  DummyDate := StrToDateTime('2000-01-01');
-  LastConnect := StrToDateTimeDef(AppSettings.ReadString(asLastConnect), DummyDate);
-  if LastConnect <> DummyDate then begin
+  if AppSettings.SessionPath.IsEmpty then
+    Exit;
+
+  LastConnect := StrToDateTimeDef(AppSettings.ReadString(asLastConnect), DateTimeNever);
+  if LastConnect <> DateTimeNever then begin
     lblLastConnectRight.Hint := DateTimeToStr(LastConnect);
     lblLastConnectRight.Caption := DateBackFriendlyCaption(LastConnect);
     lblLastConnectRight.Enabled := True;
   end;
-  Created := StrToDateTimeDef(AppSettings.ReadString(asSessionCreated), DummyDate);
-  if Created <> DummyDate then begin
+  Created := StrToDateTimeDef(AppSettings.ReadString(asSessionCreated), DateTimeNever);
+  if Created <> DateTimeNever then begin
     lblCreatedRight.Hint := DateTimeToStr(Created);
     lblCreatedRight.Caption := DateBackFriendlyCaption(Created);
     lblCreatedRight.Enabled := True;
@@ -930,10 +1080,17 @@ var
   SiblingSessions: TStringList;
 begin
   // Rename session
+  // Note that this is triggered only if the text was effectively changed
   Sess := Sender.GetNodeData(Node);
+
   SiblingSessions := NodeSessionNames(Node.Parent, ParentKey);
+
   if SiblingSessions.IndexOf(NewText) > -1 then begin
-    ErrorDialog(f_('Session "%s" already exists!', [ParentKey+NewText]));
+    ErrorDialog(
+      f_('Session "%s" already exists!', [ParentKey+NewText])
+      + sLineBreak + sLineBreak
+      + _('If you want to change the case of a session name, you need to rename it before doing the actual case change.')
+      );
     NewText := Sess.SessionName;
   end else begin
     AppSettings.SessionPath := Sess.SessionPath;
@@ -947,6 +1104,24 @@ begin
     Sess.SessionPath := ParentKey+NewText;
   end;
   SiblingSessions.Free;
+end;
+
+
+procedure Tconnform.ListSessionsNodeDblClick(Sender: TBaseVirtualTree;
+  const HitInfo: THitInfo);
+const
+  AllowedPos: THitPositions=[hiOnItemLabel, hiOnItemLeft, hiOnItemRight, hiOnNormalIcon];
+var
+  HitPos: THitPosition;
+begin
+  // Doubleclick to open a connection, only if mouse is really on a node,
+  // not e.g. on the expand/collapse icon (see issue #820)
+  for HitPos in HitInfo.HitPositions do begin
+    if HitPos in AllowedPos then begin
+      btnOpen.OnClick(Sender);
+      Break;
+    end;
+  end;
 end;
 
 
@@ -966,6 +1141,28 @@ begin
 end;
 
 
+procedure Tconnform.editHostDblClick(Sender: TObject);
+begin
+  if CurrentParams.NetType = ntSQLite then
+    PickFile(Sender);
+end;
+
+
+procedure Tconnform.editTrim(Sender: TObject);
+var
+  Edit: TCustomEdit;
+  Trimmed: String;
+begin
+  // Trim input
+  Edit := Sender as TCustomEdit;
+  Trimmed := Edit.Text;
+  Trimmed := Trimmed.Trim([' ', #9]);
+  if Edit.Text <> Trimmed then begin
+    Edit.Text := Trimmed;
+  end;
+end;
+
+
 procedure Tconnform.chkLoginPromptClick(Sender: TObject);
 var
   Checked: Boolean;
@@ -977,6 +1174,28 @@ begin
   if Checked and (Sender = chkLoginPrompt) then
     chkWindowsAuth.Checked := False;
   Modification(Sender);
+end;
+
+
+procedure Tconnform.ColorBoxBackgroundColorGetColors(Sender: TCustomColorBox;
+  Items: TStrings);
+var
+  Node: PVirtualNode;
+  PParams: PConnectionParameters;
+  ColorName,
+  ColorNamePrefix: String;
+begin
+  // Collect custom session colors into color selector
+  ColorNamePrefix := _('Custom color:') + ' ';
+  Node := ListSessions.GetFirst;
+  while Assigned(Node) do begin
+    PParams := ListSessions.GetNodeData(Node);
+    ColorName := ColorNamePrefix + ColorToWebColorStr(PParams.SessionColor);
+    if (PParams.SessionColor <> clNone) and (Items.IndexOf(ColorName) = -1) then begin
+      Items.AddObject(ColorName, TObject(PParams.SessionColor));
+    end;
+    Node := ListSessions.GetNext(Node);
+  end;
 end;
 
 
@@ -1062,25 +1281,24 @@ var
   Params: TConnectionParameters;
 begin
   // Autoset default connection data as long as that was not modified by user
+  // and only if net type group has now changed
+  if not FLoaded then
+    Exit;
+
   Params := CurrentParams;
-  if (not editPort.Modified) and (FLoaded) then
-    case Params.NetTypeGroup of
-      ngMySQL:
-        begin
-          updownPort.Position := MakeInt(AppSettings.GetDefaultString(asPort));
-          editUsername.Text := AppSettings.GetDefaultString(asUser)
-        end;
-      ngMSSQL:
-      begin
-        updownPort.Position := 1433;
-        editUsername.Text := AppSettings.GetDefaultString(asUser)
-      end;
-      ngPgSQL:
-        begin
-          updownPort.Position := 5432;
-          editUsername.Text := 'postgres';
-        end;
-    end;
+
+  if Params.NetTypeGroup <> FLastSelectedNetTypeGroup then begin
+    if not editPort.Modified then
+      updownPort.Position := Params.DefaultPort;
+    if not editUsername.Modified then
+      editUsername.Text := Params.DefaultUsername;
+    if not editIgnoreDatabasePattern.Modified then
+      editIgnoreDatabasePattern.Text := Params.DefaultIgnoreDatabasePattern;
+    comboLibrary.Items := Params.GetLibraries;
+    comboLibrary.ItemIndex := comboLibrary.Items.IndexOf(Params.DefaultLibrary);
+  end;
+
+  FLastSelectedNetTypeGroup := Params.NetTypeGroup;
   FreeAndNil(Params);
   Modification(Sender);
 end;
@@ -1098,6 +1316,7 @@ begin
       or (Sess.Username <> editUsername.Text)
       or (Sess.LoginPrompt <> chkLoginPrompt.Checked)
       or (Sess.WindowsAuth <> chkWindowsAuth.Checked)
+      or (Sess.CleartextPluginEnabled <> chkCleartextPluginEnabled.Checked)
       or (Sess.Port <> updownPort.Position)
       or (Sess.Compressed <> chkCompressed.Checked)
       or (Sess.QueryTimeout <> updownQueryTimeout.Position)
@@ -1105,8 +1324,9 @@ begin
       or (Sess.LocalTimeZone <> chkLocalTimeZone.Checked)
       or (Sess.FullTableStatus <> chkFullTableStatus.Checked)
       or (Sess.SessionColor <> ColorBoxBackgroundColor.Selected)
-      or (Sess.NetType <> TNetType(comboNetType.ItemIndex))
+      or (Sess.NetType <> SelectedNetType)
       or (Sess.StartupScriptFilename <> editStartupScript.Text)
+      or (Sess.LibraryOrProvider <> comboLibrary.Text)
       or (Sess.AllDatabasesStr <> editDatabases.Text)
       or (Sess.Comment <> memoComment.Text)
       or (Sess.SSHHost <> editSSHHost.Text)
@@ -1121,12 +1341,18 @@ begin
       or (Sess.SSLPrivateKey <> editSSLPrivateKey.Text)
       or (Sess.SSLCertificate <> editSSLCertificate.Text)
       or (Sess.SSLCACertificate <> editSSLCACertificate.Text)
-      or (Sess.SSLCipher <> editSSLCipher.Text);
+      or (Sess.SSLCipher <> editSSLCipher.Text)
+      or (Sess.IgnoreDatabasePattern <> editIgnoreDatabasePattern.Text)
+      or (Sess.LogFileDdl <> chkLogFileDdl.Checked)
+      or (Sess.LogFileDml <> chkLogFileDml.Checked)
+      or (Sess.LogFilePath <> editLogFilePath.Text)
+      ;
     PasswordModified := Sess.Password <> editPassword.Text;
     FOnlyPasswordModified := PasswordModified and (not FSessionModified);
     FSessionModified := FSessionModified or PasswordModified;
     if (Sender=editHost) or (Sender=editUsername) or (Sender=editPassword) or
-      (Sender=comboNetType) or (Sender=chkWindowsAuth) or (Sender=editPort) then begin
+      (Sender=comboNetType) or (Sender=chkWindowsAuth) or (Sender=editPort) or
+      (Sender=chkCleartextPluginEnabled) then begin
       // Be sure to use the modified connection params next time the user clicks the "Databases" pulldown
       FreeAndNil(FPopupDatabases);
     end;
@@ -1155,6 +1381,21 @@ begin
 end;
 
 
+procedure Tconnform.FindAddDatabaseFilesClick(Sender: TObject);
+var
+  PrevText: String;
+begin
+  // Append or replace filenames
+  PrevText := editHost.Text;
+  PickFile(editHost);
+  if (Sender = menuAddDatabaseFiles)
+    and (not PrevText.IsEmpty)
+    and (editHost.Text <> PrevText)
+    and (editHost.Text <> '') then begin
+    editHost.Text := PrevText + DELIM + editHost.Text;
+  end;
+end;
+
 procedure Tconnform.ValidateControls;
 var
   SessionFocused, FolderFocused: Boolean;
@@ -1168,27 +1409,38 @@ begin
     FolderFocused := Params.IsFolder;
 
     if SessionFocused then begin
-      // Validate session GUI stuff
-      if Params.NetType = ntMySQL_NamedPipe then
-        lblHost.Caption := _('Socket name:')
-      else
-        lblHost.Caption := _('Hostname / IP:');
-      chkWindowsAuth.Enabled := Params.IsMSSQL;
-      lblUsername.Enabled := ((not chkLoginPrompt.Checked) or (not chkLoginPrompt.Enabled))
+      // Validate session GUI stuff on "Settings" tab:
+      case Params.NetType of
+        ntMySQL_NamedPipe: begin
+          lblHost.Caption := _('Socket name:');
+        end;
+        ntSQLite: begin
+          lblHost.Caption := _('Database filename(s)')+':';
+        end
+        else begin
+          lblHost.Caption := _('Hostname / IP:');
+        end;
+      end;
+      editHost.RightButton.Visible := Params.IsAnySQLite;
+      chkLoginPrompt.Enabled := Params.NetTypeGroup in [ngMySQL, ngMSSQL, ngPgSQL];
+      chkWindowsAuth.Enabled := Params.IsAnyMSSQL or Params.IsAnyMySQL;
+      lblUsername.Enabled := (Params.NetTypeGroup in [ngMySQL, ngMSSQL, ngPgSQL])
+        and ((not chkLoginPrompt.Checked) or (not chkLoginPrompt.Enabled))
         and ((not chkWindowsAuth.Checked) or (not chkWindowsAuth.Enabled));
       editUsername.Enabled := lblUsername.Enabled;
       lblPassword.Enabled := lblUsername.Enabled;
       editPassword.Enabled := lblUsername.Enabled;
-      lblPort.Enabled := Params.NetType in [ntMySQL_TCPIP, ntMySQL_SSHtunnel, ntMSSQL_TCPIP, ntPgSQL_TCPIP, ntPgSQL_SSHtunnel];
-      if (Params.NetType = ntMSSQL_TCPIP) and (Pos('\', editHost.Text) > 0) then
-        lblPort.Enabled := False; // Named instance without port
+      lblPort.Enabled := Params.NetType in [ntMySQL_TCPIP, ntMySQL_SSHtunnel, ntMySQL_ProxySQLAdmin, ntMSSQL_TCPIP, ntPgSQL_TCPIP, ntPgSQL_SSHtunnel];
       editPort.Enabled := lblPort.Enabled;
       updownPort.Enabled := lblPort.Enabled;
-      if Params.NetTypeGroup = ngPgSQL then
-        lblDatabase.Caption := _('Database')+':'
-      else
-        lblDatabase.Caption := _('Databases')+':';
-      chkWantSSL.Enabled := Params.NetType in [ntMySQL_TCPIP, ntMySQL_SSHtunnel];
+      chkCompressed.Enabled := Params.IsAnyMySQL;
+      lblDatabase.Caption := IfThen(Params.IsAnyPostgreSQL, _('Database')+':', _('Databases')+':');
+      lblDatabase.Enabled := Params.NetTypeGroup in [ngMySQL, ngMSSQL, ngPgSQL];
+      editDatabases.Enabled := lblDatabase.Enabled;
+      // SSH tunnel tab:
+      tabSSHtunnel.TabVisible := Params.NetType in [ntMySQL_SSHtunnel, ntPgSQL_SSHtunnel];
+      // Advanced tab:
+      chkWantSSL.Enabled := Params.NetType in [ntMySQL_TCPIP, ntMySQL_SSHtunnel, ntMySQL_ProxySQLAdmin, ntPgSQL_TCPIP, ntPgSQL_SSHtunnel];
       lblSSLPrivateKey.Enabled := Params.WantSSL;
       editSSLPrivateKey.Enabled := Params.WantSSL;
       lblSSLCACertificate.Enabled := Params.WantSSL;
@@ -1197,10 +1449,14 @@ begin
       editSSLCertificate.Enabled := Params.WantSSL;
       lblSSLcipher.Enabled := Params.WantSSL;
       editSSLcipher.Enabled := Params.WantSSL;
-      tabSSHtunnel.TabVisible := Params.NetType in [ntMySQL_SSHtunnel, ntPgSQL_SSHtunnel];
-      lblQueryTimeout.Enabled := Params.NetTypeGroup in [ngMSSQL, ngPgSQL];
+      lblQueryTimeout.Enabled := Params.NetTypeGroup in [ngMSSQL, ngPgSQL, ngSQLite];
       editQueryTimeout.Enabled := lblQueryTimeout.Enabled;
       updownQueryTimeout.Enabled := lblQueryTimeout.Enabled;
+      chkLocalTimeZone.Enabled := Params.NetTypeGroup = ngMySQL;
+      chkFullTableStatus.Enabled := (Params.NetTypeGroup in [ngMySQL, ngPgSQL]) and (Params.NetType <> ntMySQL_ProxySQLAdmin);
+      chkCleartextPluginEnabled.Enabled := Params.NetTypeGroup = ngMySQL;
+      editLogFilePath.Enabled := Params.LogFileDdl or Params.LogFileDml;
+
       Params.Free;
     end;
   end;
@@ -1219,14 +1475,25 @@ procedure Tconnform.splitterMainMoved(Sender: TObject);
 var
   ButtonWidth: Integer;
 begin
-  // Splitter resized - adjust width of buttons
-  ButtonWidth := Round((ListSessions.Width - 2 * ListSessions.Margins.Left) / 3);
+  // Splitter resized - adjust width of bottom left buttons
+  ButtonWidth := Round((pnlLeft.Width - 2 * pnlLeft.Margins.Left) / 3);
   btnNew.Width := ButtonWidth;
   btnSave.Width := ButtonWidth;
   btnDelete.Width := ButtonWidth;
-  btnNew.Left := ListSessions.Left;
-  btnSave.Left := btnNew.Left + btnNew.Width + ListSessions.Margins.Left;
-  btnDelete.Left := btnSave.Left + btnSave.Width + ListSessions.Margins.Left;
+  btnNew.Left := pnlLeft.Left;
+  btnSave.Left := btnNew.Left + btnNew.Width + pnlLeft.Margins.Left;
+  btnDelete.Left := btnSave.Left + btnSave.Width + pnlLeft.Margins.Left;
+
+  // Resize bottom right buttons
+  ButtonWidth := Round((PageControlDetails.Width - 2 * PageControlDetails.Margins.Right) / 3);
+  ButtonWidth := Max(ButtonWidth, 50);
+  ButtonWidth := Min(ButtonWidth, 100);
+  btnMore.Width := ButtonWidth;
+  btnCancel.Width := ButtonWidth;
+  btnOpen.Width := ButtonWidth;
+  btnmore.Left := PageControlDetails.Left + PageControlDetails.Width - btnMore.Width;
+  btnCancel.Left := btnMore.Left - btnMore.Width - PageControlDetails.Margins.Right;
+  btnOpen.Left := btnCancel.Left - btnCancel.Width - PageControlDetails.Margins.Right;
 end;
 
 
@@ -1250,12 +1517,17 @@ var
   Edit: TButtonedEdit;
   i: Integer;
   Control: TControl;
+  FileNames: TStringList;
 begin
   // Select startup SQL file, SSL file or whatever button clicked
   Edit := Sender as TButtonedEdit;
   Selector := TOpenDialog.Create(Self);
-  Selector.FileName := editStartupScript.Text;
-  if Edit = editStartupScript then
+  if Edit = editHost then begin
+    Selector.Filter := 'SQLite databases ('+FILEFILTER_SQLITEDB+')|'+FILEFILTER_SQLITEDB+'|'+_('All files')+' (*.*)|*.*';
+    Selector.Options := Selector.Options - [ofFileMustExist];
+    Selector.Options := Selector.Options + [ofAllowMultiSelect];
+    Selector.DefaultExt := FILEEXT_SQLITEDB;
+  end else if (Edit = editStartupScript) or (Edit = editLogFilePath) then
     Selector.Filter := _('SQL files')+' (*.sql)|*.sql|'+_('All files')+' (*.*)|*.*'
   else if Edit = editSSHPlinkExe then
     Selector.Filter := _('Executables')+' (*.exe)|*.exe|'+_('All files')+' (*.*)|*.*'
@@ -1271,18 +1543,35 @@ begin
       break;
     end;
   end;
-
+  // Set initial directory to the one from the edit's file
+  Selector.InitialDir := ExtractFilePath(Edit.Text);
+  if Selector.InitialDir.IsEmpty then
+    Selector.InitialDir := AppSettings.DirnameUserDocuments;
   if Selector.Execute then begin
-    // Remove path if it's the application directory
-    if ExtractFilePath(Selector.FileName) = ExtractFilePath(Application.ExeName) then
-      Edit.Text := ExtractFileName(Selector.FileName)
-    else
-      Edit.Text := Selector.FileName;
+    FileNames := TStringList.Create;
+    FileNames.Assign(Selector.Files);
+    for i:=0 to FileNames.Count-1 do begin
+      // Remove path if it's the application directory
+      if ExtractFilePath(FileNames[i]) = ExtractFilePath(Application.ExeName) then
+        FileNames[i] := ExtractFileName(FileNames[i]);
+    end;
+    Edit.Text := implodestr(DELIM, FileNames);
     Modification(Selector);
   end;
   Selector.Free;
 end;
 
+
+procedure Tconnform.editSearchChange(Sender: TObject);
+begin
+  // Filter session nodes
+  FilterNodesByEdit(Sender as TButtonedEdit, ListSessions);
+end;
+
+procedure Tconnform.editSearchRightButtonClick(Sender: TObject);
+begin
+  editSearch.Clear;
+end;
 
 procedure Tconnform.editSSHPlinkExeChange(Sender: TObject);
 begin
@@ -1291,12 +1580,6 @@ begin
   else
     editSSHPlinkExe.Font.Color := GetThemeColor(clWindowText);
   Modification(Sender);
-end;
-
-
-procedure Tconnform.lblDownloadPlinkClick(Sender: TObject);
-begin
-  ShellExec(TLabel(Sender).Hint);
 end;
 
 

@@ -7,8 +7,8 @@ interface
 uses
   Windows, Forms, Graphics, Messages, VirtualTrees, ComCtrls, SysUtils, Classes,
   StdCtrls, ExtCtrls, CheckLst, Controls, Types, Dialogs, Menus, Mask, DateUtils, Math,
-  dbconnection, mysql_structures, apphelpers, texteditor, bineditor, gnugettext,
-  StrUtils, System.UITypes, SynRegExpr, Vcl.Themes;
+  dbconnection, dbstructures, apphelpers, texteditor, bineditor, gnugettext,
+  StrUtils, System.UITypes, SynRegExpr, Vcl.Themes, extra_controls;
 
 type
   // Radio buttons and checkboxes which do not pass <Enter> key to their parent control
@@ -22,6 +22,7 @@ type
 
   TBaseGridEditorLink = class(TInterfacedObject, IVTEditLink)
   private
+    FInstanceId: Integer;
     FParentForm: TWinControl;      // A back reference to the main form
     FTree: TVirtualStringTree;        // A back reference to the tree calling.
     FNode: PVirtualNode;              // The node to be edited.
@@ -36,17 +37,23 @@ type
     FOldWindowProc: TWndMethod;       // Temporary switched to TempWindowProc to be able to catch Tab key
     FTableColumn: TTableColumn;
     FModified: Boolean;
+    FAllowEdit: Boolean;
     FBeginEditTime: Cardinal;
+    procedure Log(Msg: String);
     procedure TempWindowProc(var Message: TMessage);
     procedure DoKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure DoEndEdit(Sender: TObject);
     procedure DoCancelEdit(Sender: TObject);
     function GetCellRect(InnerTextBounds: Boolean): TRect;
   public
-    property TableColumn: TTableColumn read FTableColumn write FTableColumn; // The table column of the cell being edited. Mostly used in data grids.
-    constructor Create; overload;                    // The original constructor, not used any more, throws an exception if you do
-    constructor Create(Tree: TVirtualStringTree); overload; virtual; // The right constructor, we need the Tree reference
+    // The table column of the cell being edited. Mostly used in data grids.
+    property TableColumn: TTableColumn read FTableColumn write FTableColumn;
+    // The original constructor, not used any more, throws an exception if you do
+    constructor Create; overload;
+    // The right constructor, we need the Tree reference
+    constructor Create(Tree: TVirtualStringTree; AllowEdit: Boolean); overload; virtual;
     destructor Destroy; override;
+    property Tree: TVirtualStringTree read FTree;
     function PrepareEdit(Tree: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex): Boolean; virtual; stdcall;
     function BeginEdit: Boolean; virtual; stdcall;
     function CancelEdit: Boolean; virtual; stdcall;
@@ -63,7 +70,7 @@ type
   public
     MaxLength: Integer;
     TitleText: String;
-    constructor Create(Tree: TVirtualStringTree); override;
+    constructor Create(Tree: TVirtualStringTree; AllowEdit: Boolean); override;
     destructor Destroy; override;
     function BeginEdit: Boolean; override;
     function CancelEdit: Boolean; override;
@@ -90,7 +97,7 @@ type
     procedure TextChange(Sender: TObject);
     function MicroSecondsPrecision: Integer;
   public
-    constructor Create(Tree: TVirtualStringTree); override;
+    constructor Create(Tree: TVirtualStringTree; AllowEdit: Boolean); override;
     destructor Destroy; override;
     function BeginEdit: Boolean; override;
     function EndEdit: Boolean; override;
@@ -102,10 +109,12 @@ type
   private
     FCombo: TComboBox;
     procedure DoKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure DoSelect(Sender: TObject);
   public
     ValueList, DisplayList: TStringList;
     AllowCustomText: Boolean;
-    constructor Create(Tree: TVirtualStringTree); override;
+    ItemMustExist: Boolean;
+    constructor Create(Tree: TVirtualStringTree; AllowEdit: Boolean); override;
     destructor Destroy; override;
     function BeginEdit: Boolean; override;
     function EndEdit: Boolean; override;
@@ -123,7 +132,7 @@ type
     procedure BtnCancelClick(Sender: TObject);
   public
     ValueList: TStringList;
-    constructor Create(Tree: TVirtualStringTree); override;
+    constructor Create(Tree: TVirtualStringTree; AllowEdit: Boolean); override;
     destructor Destroy; override;
     function BeginEdit: Boolean; override;
     function EndEdit: Boolean; override;
@@ -144,7 +153,7 @@ type
   public
     ButtonVisible: Boolean;
     TitleText: String;
-    constructor Create(Tree: TVirtualStringTree); override;
+    constructor Create(Tree: TVirtualStringTree; AllowEdit: Boolean); override;
     destructor Destroy; override;
     function BeginEdit: Boolean; override;
     function CancelEdit: Boolean; override;
@@ -173,7 +182,7 @@ type
   public
     DefaultType, OnUpdateType: TColumnDefaultType;
     DefaultText, OnUpdateText: String;
-    constructor Create(Tree: TVirtualStringTree); override;
+    constructor Create(Tree: TVirtualStringTree; AllowEdit: Boolean); override;
     destructor Destroy; override;
     function BeginEdit: Boolean; override;
     function EndEdit: Boolean; override;
@@ -199,7 +208,7 @@ type
         PVirtualNode; OldColumn, NewColumn: TColumnIndex; var Allowed: Boolean);
     procedure DoTreeSelectFocusChanged(Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex);
   public
-    constructor Create(Tree: TVirtualStringTree); override;
+    constructor Create(Tree: TVirtualStringTree; AllowEdit: Boolean); override;
     destructor Destroy; override;
     function BeginEdit: Boolean; override;
     function EndEdit: Boolean; override;
@@ -208,8 +217,13 @@ type
   end;
 
 
+var
+  ActiveGridEditor: TBaseGridEditorLink=nil;
 
 implementation
+
+uses
+  main;
 
 
 procedure TAllKeysRadioButton.WMGetDlgCode(var Msg: TMessage);
@@ -225,6 +239,11 @@ begin
   Msg.Result := Msg.Result or DLGC_WANTALLKEYS;
 end;
 
+procedure TBaseGridEditorLink.Log(Msg: String);
+begin
+  MainForm.LogSQL('#'+FInstanceId.ToString+': '+Msg);
+end;
+
 
 constructor TBaseGridEditorLink.Create;
 begin
@@ -232,17 +251,19 @@ begin
     [Self.ClassName, 'Create', Self.ClassName, 'Create(VirtualStringTree)']);
 end;
 
-constructor TBaseGridEditorLink.Create(Tree: TVirtualStringTree);
+constructor TBaseGridEditorLink.Create(Tree: TVirtualStringTree; AllowEdit: Boolean);
 begin
   inherited Create;
+  FInstanceId := Random(100);
   FTree := Tree;
   // Enable mouse scrolling, plus ensure the editor component
   // is not partly hidden when it pops up in a bottom cell
   FParentForm := GetParentForm(FTree);
   // Avoid flicker
   FParentForm.Repaint;
-  SendMessage(FParentForm.Handle, WM_SETREDRAW, 0, 0);
   FModified := False;
+  FAllowEdit := AllowEdit;
+  ActiveGridEditor := Self;
 end;
 
 destructor TBaseGridEditorLink.Destroy;
@@ -251,7 +272,9 @@ var
   NewNode: PVirtualNode;
   DoPrev: Boolean;
 begin
-  inherited;
+  ActiveGridEditor := nil;
+  FMainControl.WindowProc := FOldWindowProc;
+  FMainControl := nil;
   if FLastKeyDown = VK_TAB then begin
     DoPrev := ssShift in FLastShiftState;
     // Advance to next/previous visible column/node.
@@ -266,23 +289,25 @@ begin
           NewColumn := LastCol;
           NewNode := FTree.GetPreviousVisible(NewNode);
         end else
-          NewColumn := FTree.Header.Columns.GetPreviousColumn(NewColumn);
+          NewColumn := FTree.Header.Columns.GetPreviousVisibleColumn(NewColumn);
       end else begin
         if NewColumn = LastCol then begin
           NewColumn := FirstCol;
           NewNode := FTree.GetNextVisible(NewNode);
         end else
-          NewColumn := FTree.Header.Columns.GetNextColumn(NewColumn);
+          NewColumn := FTree.Header.Columns.GetNextVisibleColumn(NewColumn);
       end;
       if not Assigned(NewNode) then
         Break;
-      FTree.FocusedNode := NewNode;
-      FTree.FocusedColumn := NewColumn;
-      if not FTree.EditNode(FTree.FocusedNode, FTree.FocusedColumn) then
-        FTree.SetFocus;
+      if not FTree.CanEdit(NewNode, NewColumn) then
+        Continue;
+      FTree.ClearSelection;
+      FTree.Selected[NewNode] := True;
+      FTree.EditNode(NewNode, NewColumn);
       Break;
     end;
   end;
+  inherited;
 end;
 
 function TBaseGridEditorLink.PrepareEdit(Tree: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex): Boolean;
@@ -304,8 +329,9 @@ begin
   if Assigned(FMainControl) then begin
     FOldWindowProc := FMainControl.WindowProc;
     FMainControl.WindowProc := TempWindowProc;
+    TExtForm.FixControls(FMainControl);
   end;
-  // Adjust editor position and allow repainting mainform  
+  // Adjust editor position and allow repainting mainform
   SetBounds(FCellTextBounds);
   SendMessage(FParentForm.Handle, WM_SETREDRAW, 1, 0);
 end;
@@ -332,7 +358,7 @@ begin
   Result := not FStopping;
   if FStopping then Exit;
   FStopping := True;
-  if FModified then
+  if FModified and FAllowEdit then
     FTree.Text[FNode, FColumn] := NewText;
   if FTree.CanFocus and (FLastKeyDown <> VK_TAB) then
     FTree.SetFocus;
@@ -351,6 +377,9 @@ begin
         FOldWindowProc(Message);
       except
         // EAccessViolation occurring in some cases
+        on E:Exception do begin
+          Log(E.Message+' Message CharCode:'+TWMChar(Message).CharCode.ToString+' Msg:'+Message.Msg.ToString);
+        end;
       end;
     end;
   end;
@@ -358,7 +387,7 @@ end;
 
 procedure TBaseGridEditorLink.ProcessMessage(var Message: TMessage);
 begin
-  if Assigned(FMainControl) then
+  if (FMainControl <> nil) and FMainControl.HandleAllocated then
     FMainControl.WindowProc(Message);
 end;
 
@@ -439,9 +468,9 @@ end;
 
 
 
-constructor THexEditorLink.Create(Tree: TVirtualStringTree);
+constructor THexEditorLink.Create(Tree: TVirtualStringTree; AllowEdit: Boolean);
 begin
-  inherited Create(Tree);
+  inherited;
 end;
 
 destructor THexEditorLink.Destroy;
@@ -464,6 +493,7 @@ begin
   FForm.SetText(FCellText);
   FForm.SetTitleText(TitleText);
   FForm.SetMaxLength(MaxLength);
+  FForm.memoText.ReadOnly := not FAllowEdit;
 end;
 
 
@@ -500,9 +530,9 @@ end;
 
 { DateTime editor }
 
-constructor TDateTimeEditorLink.Create(Tree: TVirtualStringTree);
+constructor TDateTimeEditorLink.Create(Tree: TVirtualStringTree; AllowEdit: Boolean);
 begin
-  inherited Create(Tree);
+  inherited;
 
   FPanel := TPanel.Create(FParentForm);
   FPanel.Parent := FParentForm;
@@ -518,6 +548,7 @@ begin
   FMaskEdit.OnKeyDown := DoKeyDown;
   FMaskEdit.OnKeyUp := DoKeyUp;
   FMaskEdit.OnChange := TextChange;
+  FMaskEdit.ReadOnly := not FAllowEdit;
   FMainControl := FMaskEdit;
 
   FUpDown := TUpDown.Create(FPanel);
@@ -821,7 +852,7 @@ begin
     Result := MakeInt(FTableColumn.LengthSet)
   else begin
     // Find default length of supported microseconds in datatype definition
-    // See mysql_structures
+    // See dbstructures
     rx := TRegExpr.Create;
     rx.Expression := '\.([^\.]+)$';
     if rx.Exec(FTableColumn.DataType.Format) then
@@ -839,15 +870,17 @@ end;
 
 { Enum editor }
 
-constructor TEnumEditorLink.Create(Tree: TVirtualStringTree);
+constructor TEnumEditorLink.Create(Tree: TVirtualStringTree; AllowEdit: Boolean);
 begin
-  inherited Create(Tree);
+  inherited;
   AllowCustomText := False;
+  ItemMustExist := False;
   FCombo := TComboBox.Create(FParentForm);
   FCombo.Hide;
   FCombo.Parent := FParentForm;
   FCombo.OnKeyDown := DoKeyDown;
   FCombo.OnExit := DoEndEdit;
+  FCombo.OnSelect := DoSelect;
   // Show some more than the default 8 items
   FCombo.DropDownCount := 16;
   ValueList := TStringList.Create;
@@ -877,7 +910,7 @@ function TEnumEditorLink.EndEdit: Boolean; stdcall;
 var
   NewText: String;
 begin
-  if AllowCustomText then
+  if AllowCustomText and FAllowEdit and (not ItemMustExist) then
     NewText := FCombo.Text
   else if (ValueList.Count > 0) and (FCombo.ItemIndex > -1) then
     NewText := ValueList[FCombo.ItemIndex]
@@ -899,15 +932,16 @@ begin
       Items := DisplayList
     else
       Items := ValueList;
-    for i:=0 to Items.Count - 1 do
+    for i:=0 to Items.Count - 1 do begin
       FCombo.Items.Add(Items[i]);
-    if AllowCustomText then begin
+    end;
+    FCombo.ItemIndex := ValueList.IndexOf(FCellText);
+    if AllowCustomText and FAllowEdit then begin
       FCombo.Style := csDropDown;
       FCombo.Text := FCellText;
     end else begin
       // Set style to OwnerDraw, otherwise we wouldn't be able to adjust the combo's height
       FCombo.Style := csOwnerDrawFixed;
-      FCombo.ItemIndex := ValueList.IndexOf(FCellText);
     end;
   end;
 end;
@@ -929,12 +963,21 @@ begin
 end;
 
 
+procedure TEnumEditorLink.DoSelect(Sender: TObject);
+begin
+  // Read only mode?
+  if not FAllowEdit then begin
+    FCombo.ItemIndex := ValueList.IndexOf(FCellText);
+  end;
+end;
+
+
 
 { SET editor }
 
-constructor TSetEditorLink.Create(Tree: TVirtualStringTree);
+constructor TSetEditorLink.Create(Tree: TVirtualStringTree; AllowEdit: Boolean);
 begin
-  inherited Create(Tree);
+  inherited;
   ValueList := TStringList.Create;
 
   FPanel := TPanel.Create(FParentForm);
@@ -1015,6 +1058,7 @@ begin
   SelValues.DelimitedText := FCellText;
   for i:=0 to FCheckList.Items.Count-1 do begin
     FCheckList.Checked[i] := SelValues.IndexOf(FCheckList.Items[i]) > -1;
+    FCheckList.ItemEnabled[i] := FAllowEdit;
   end;
   SelValues.Free;
 end;
@@ -1033,6 +1077,7 @@ begin
   FBtnOk.Left := margin;
   FBtnOk.Height := 24;
   FBtnOk.Top := FPanel.Height - 2*margin - FBtnOk.Height;
+  FBtnOk.Enabled := FAllowEdit;
 
   FBtnCancel.Width := FBtnOk.Width;
   FBtnCancel.Left := 2*margin + FBtnOk.Width;
@@ -1043,6 +1088,7 @@ begin
   FCheckList.Left := margin;
   FCheckList.Width := FPanel.Width - 2*margin;
   FCheckList.Height := FBtnOk.Top - margin - FCheckList.Top;
+  // FCheckList.Enabled := FAllowEdit; // crashes with "cannot focus if disabled"
 end;
 
 
@@ -1065,9 +1111,9 @@ end;
 
 { TInplaceEditorLink }
 
-constructor TInplaceEditorLink.Create(Tree: TVirtualStringTree);
+constructor TInplaceEditorLink.Create(Tree: TVirtualStringTree; AllowEdit: Boolean);
 begin
-  inherited Create(Tree);
+  inherited;
   ButtonVisible := false;
   FTextEditor := nil;
 
@@ -1083,6 +1129,7 @@ begin
   FEdit.ParentColor := True;
   FEdit.BorderStyle := bsNone;
   FEdit.OnKeyDown := DoKeyDown;
+  FEdit.ReadOnly := not FAllowEdit;
   FMainControl := FEdit;
 
   FButton := TButton.Create(FPanel);
@@ -1161,6 +1208,7 @@ begin
   FTextEditor.SetTitleText(TitleText);
   FTextEditor.Modified := FEdit.Modified;
   FTextEditor.SetMaxLength(Self.FMaxLength);
+  FTextEditor.memoText.ReadOnly := not FAllowEdit;
   FTextEditor.ShowModal;
 end;
 
@@ -1196,13 +1244,13 @@ end;
 
 { Column default editor }
 
-constructor TColumnDefaultEditorLink.Create(Tree: TVirtualStringTree);
+constructor TColumnDefaultEditorLink.Create(Tree: TVirtualStringTree; AllowEdit: Boolean);
 const
   m = 5;
 var
   i: Integer;
 begin
-  inherited Create(Tree);
+  inherited;
 
   FPanel := TPanel.Create(FParentForm);
   FPanel.Hide;
@@ -1522,7 +1570,7 @@ begin
     if Item.Checked then
       NewValue := NewValue + StripHotkey(Item.Caption) + ',';
   end;
-  if not IsEmpty(NewValue) then
+  if not NewValue.IsEmpty then
     Delete(NewValue, Length(NewValue), 1);
   FTextEdit.Text := NewValue;
   FModified := True;
@@ -1546,9 +1594,9 @@ end;
 
 
 { Datatype selector }
-constructor TDataTypeEditorLink.Create(Tree: TVirtualStringTree);
+constructor TDataTypeEditorLink.Create(Tree: TVirtualStringTree; AllowEdit: Boolean);
 begin
-  inherited Create(Tree);
+  inherited;
 
   FTreeSelect := TVirtualStringTree.Create(FParentForm);
   FTreeSelect.Hide;

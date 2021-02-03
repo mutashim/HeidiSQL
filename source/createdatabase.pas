@@ -4,10 +4,10 @@ interface
 
 uses
   Windows, SysUtils, Classes, Graphics, Controls, Forms, Dialogs, StdCtrls, SynEdit, SynMemo,
-  dbconnection, gnugettext, SynRegExpr;
+  dbconnection, dbstructures, gnugettext, SynRegExpr, extra_controls;
 
 type
-  TCreateDatabaseForm = class(TForm)
+  TCreateDatabaseForm = class(TExtForm)
     editDBName: TEdit;
     lblDBName: TLabel;
     btnOK: TButton;
@@ -41,7 +41,6 @@ uses main, apphelpers;
 
 procedure TCreateDatabaseForm.FormCreate(Sender: TObject);
 begin
-  TranslateComponent(Self);
   lblCreateCode.Caption := lblCreateCode.Caption + ':';
   // Setup SynMemoPreview
   SynMemoCreateCode.Highlighter := Mainform.SynSQLSynUsed;
@@ -61,11 +60,10 @@ begin
   CollationTable := FConnection.CollationTable;
 
   // Detect servers default collation
-  // TODO: Find out how to retrieve the server's default collation on MSSQL
   case FConnection.Parameters.NetTypeGroup of
     ngMySQL:
-      ServerCollation := FConnection.GetVar('SHOW VARIABLES LIKE '+FConnection.EscapeString('collation_server'), 1);
-    ngMSSQL:
+      ServerCollation := FConnection.GetSessionVariable('collation_server');
+    else // TODO: Find out how to retrieve the server's default collation here
       ServerCollation := '';
   end;
   lblServerDefaultCollation.Caption := f_('Servers default: %s', [ServerCollation]);
@@ -74,7 +72,9 @@ begin
     Caption := _('Create database ...');
     editDBName.Text := '';
     Charset := '';
-    Collation := ServerCollation;
+    Collation := AppSettings.ReadString(asCreateDbCollation);
+    if Collation.IsEmpty then
+      Collation := ServerCollation;
   end
   else begin
     Caption := _('Alter database ...');
@@ -138,11 +138,12 @@ begin
   if modifyDB = '' then try
     sql := GetCreateStatement;
     FConnection.Query(sql);
+    AppSettings.WriteString(asCreateDbCollation, comboCollation.Text);
     MainForm.RefreshTree;
     // Close form
     ModalResult := mrOK;
   except
-    on E:EDatabaseError do
+    on E:EDbError do
       ErrorDialog(f_('Creating database "%s" failed.', [editDBName.Text]), E.Message);
     // Keep form open
   end else try

@@ -5,10 +5,11 @@ interface
 uses
   Windows, Messages, SysUtils, Classes, Controls, Forms, Dialogs, StdCtrls,
   ExtCtrls, SynMemo, SynEditTypes, gnugettext, VirtualTrees, SynRegExpr,
-  SynEditRegexSearch, SynEditMiscClasses, SynEditSearch, extra_controls;
+  SynEditRegexSearch, SynEditMiscClasses, SynEditSearch, extra_controls,
+  Vcl.Menus;
 
 type
-  TfrmSearchReplace = class(TFormWithSizeGrip)
+  TfrmSearchReplace = class(TExtForm)
     btnCancel: TButton;
     btnReplaceAll: TButton;
     lblSearch: TLabel;
@@ -29,6 +30,10 @@ type
     SynEditRegexSearch1: TSynEditRegexSearch;
     lblSearchIn: TLabel;
     comboSearchIn: TComboBox;
+    btnSearchHints: TButton;
+    btnReplaceHints: TButton;
+    popupSearchHints: TPopupMenu;
+    popupReplaceHints: TPopupMenu;
     procedure ValidateControls(Sender: TObject);
     procedure chkReplaceClick(Sender: TObject);
     procedure FormShow(Sender: TObject);
@@ -36,6 +41,8 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure DoSearchReplace(Sender: TObject);
+    procedure btnWithDropDownClick(Sender: TObject);
+    procedure menuHintClick(Sender: TObject);
   private
     { Private declarations }
     procedure DoSearchReplaceText;
@@ -58,8 +65,17 @@ uses apphelpers, main;
 
 
 procedure TfrmSearchReplace.FormCreate(Sender: TObject);
+  function AddItem(Menu: TPopupMenu; Code, Description, Example: String; IsRegEx: Boolean): TMenuItem;
+  begin
+    Result := TMenuItem.Create(Menu);
+    Result.Caption := Code + ' ' + _(Description);
+    Result.Hint := Example;
+    Result.OnClick := menuHintClick;
+    Result.Tag := Integer(IsRegEx);
+    Menu.Items.Add(Result);
+  end;
 begin
-  TranslateComponent(Self);
+  HasSizeGrip := True;
   comboSearch.Items.Text := AppSettings.ReadString(asFindDialogSearchHistory);
   comboReplace.Items.Text := AppSettings.ReadString(asFindDialogReplaceHistory);
   comboSearch.Text := '';
@@ -67,15 +83,28 @@ begin
   if comboSearch.Items.Count > 0 then comboSearch.Text := comboSearch.Items[0];
   if comboReplace.Items.Count > 0 then comboReplace.Text := comboReplace.Items[0];
 
-  chkRegularExpression.Hint := _('Search patterns:')+CRLF+
-    ' ^ '+_('Start of line')+CRLF+
-    ' $ '+_('End of line')+CRLF+
-    ' \w '+_('Any word character')+CRLF+
-    ' \d '+_('Digit')+' (0-9)'+CRLF+
-    ' \s '+_('Whitespace')+CRLF+
-    _('Replacement patterns:')+CRLF+
-    ' $0 .. $n '+_('Callback parentheses')
-    ;
+  AddItem(popupSearchHints, '^', 'Start of line', '', True);
+  AddItem(popupSearchHints, '$', 'End of line', '', True);
+  AddItem(popupSearchHints, '.', 'Any character', '', True);
+  AddItem(popupSearchHints, '\w', 'Any word char', 'a-z A-Z 0-9 and _', True);
+  AddItem(popupSearchHints, '\W', 'Any non-word char', '', True);
+  AddItem(popupSearchHints, '\d', 'Digit', '0..9', True);
+  AddItem(popupSearchHints, '\D', 'Any char except digits', '', True);
+  AddItem(popupSearchHints, '\s', 'Whitespace', 'space, tab, carriage return, line feed, or form feed', True);
+  AddItem(popupSearchHints, '\S', 'Any char except whitespaces', '', True);
+
+  AddItem(popupReplaceHints, '\n', 'New line', '', False);
+  AddItem(popupReplaceHints, '\t', 'Tabulator', '', False);
+  AddItem(popupReplaceHints, '$0', 'Entire matched text', '', True);
+  AddItem(popupReplaceHints, '$1', 'Text from first captured group', '', True);
+  AddItem(popupReplaceHints, '$2', 'Text from second captured group', '', True);
+  AddItem(popupReplaceHints, '$3', 'Text from third captured group', '', True);
+  AddItem(popupReplaceHints, '\l', 'Lowercase following char', 'aBCD', True);
+  AddItem(popupReplaceHints, '\L', 'Lowercase following block', 'abcd', True);
+  AddItem(popupReplaceHints, '\u', 'Uppercase following char', 'Abcd', True);
+  AddItem(popupReplaceHints, '\U', 'Uppercase following block', 'ABCD', True);
+  AddItem(popupReplaceHints, '\x', 'Hex code follows', '\x85', True);
+
 end;
 
 
@@ -154,6 +183,37 @@ begin
 end;
 
 
+procedure TfrmSearchReplace.menuHintClick(Sender: TObject);
+var
+  Item: TMenuItem;
+  Code: String;
+  Combo: TComboBox;
+begin
+  // Search or replace hint menu item clicked
+  Item := Sender as TMenuItem;
+  Code := RegExprGetMatch('^(\S+)', StripHotkey(Item.Caption), 1);
+  if Item.GetParentMenu = popupSearchHints then
+    Combo := comboSearch
+  else
+    Combo := comboReplace;
+  // Do not overwrite user's text
+  Combo.SelLength := 0;
+  Combo.SelText := Code;
+  // Be sure to support regular expression if menu item is a regex pattern
+  if (Item.Tag = 1) and (not chkRegularExpression.Checked) then
+    chkRegularExpression.Checked := True;
+end;
+
+
+procedure TfrmSearchReplace.btnWithDropDownClick(Sender: TObject);
+var
+  btn: TButton;
+begin
+  btn := Sender as TButton;
+  btn.DropDownMenu.Popup(btn.ClientOrigin.X, btn.ClientOrigin.Y+btn.Height);
+end;
+
+
 procedure TfrmSearchReplace.chkReplaceClick(Sender: TObject);
 begin
   // Jump to replace editor
@@ -167,6 +227,7 @@ procedure TfrmSearchReplace.ValidateControls(Sender: TObject);
 begin
   // Enable or disable various controls
   comboReplace.Enabled := chkReplace.Checked;
+  btnReplaceHints.Enabled := chkReplace.Checked;
   chkPromptOnReplace.Enabled := chkReplace.Checked;
   btnReplaceAll.Enabled := chkReplace.Checked;
   lblReplaceHint.Enabled := chkReplace.Checked;
@@ -358,7 +419,7 @@ begin
         Inc(MatchCount);
 
         // Set focus on node and column
-        SelectNode(Grid, Node);
+        SelectNode(Grid, Node, False);
         Grid.FocusedColumn := Column;
 
         // Replace logic
@@ -366,7 +427,7 @@ begin
           if ssoPrompt in Options then begin
             // Ask user
             Prompt := MessageDialog(f_('Replace this occurrence of "%s"?', [Search]),
-              sstr(CellText, 500),
+              StrEllipsis(CellText, 500),
               mtConfirmation,
               [mbYes, mbYesToAll, mbNo, mbCancel]);
             case Prompt of

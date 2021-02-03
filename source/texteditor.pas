@@ -11,7 +11,7 @@ uses
 {$I const.inc}
 
 type
-  TfrmTextEditor = class(TFormWithSizeGrip)
+  TfrmTextEditor = class(TExtForm)
     Panel1: TPanel;
     tlbStandard: TToolBar;
     btnWrap: TToolButton;
@@ -68,6 +68,7 @@ type
     procedure SetMaxLength(len: integer);
     procedure SetFont(font: TFont);
     property Modified: Boolean read FModified write SetModified;
+    property memoText: TLineNormalizingMemo read FmemoText;
   end;
 
 
@@ -99,7 +100,9 @@ procedure TfrmTextEditor.SetText(text: String);
 var
   Detected, Item: TMenuItem;
 begin
+  // Apply text string, and detect type of line breaks in it
   FDetectedLineBreaks := ScanLineBreaks(text);
+  Detected := nil;
   if FDetectedLineBreaks = lbsNone then
     FDetectedLineBreaks := TLineBreaks(AppSettings.ReadInt(asLineBreakStyle));
   for Item in popupLinebreaks.Items do begin
@@ -183,6 +186,7 @@ end;
 
 procedure TfrmTextEditor.FormCreate(Sender: TObject);
 begin
+  HasSizeGrip := True;
   FmemoText := TLineNormalizingMemo.Create(Self);
   FmemoText.Parent := Self;
   FmemoText.Align := alClient;
@@ -199,8 +203,6 @@ begin
   actSearchFindNext.Hint := MainForm.actQueryFindAgain.Hint;
   actSearchReplace.Caption := MainForm.actQueryReplace.Caption;
   actSearchReplace.Hint := MainForm.actQueryReplace.Hint;
-  TranslateComponent(Self);
-  FixDropDownButtons(Self);
   // Assign linebreak values to their menu item tags, to write less code later
   menuWindowsLB.Tag := Integer(lbsWindows);
   menuUnixLB.Tag := Integer(lbsUnix);

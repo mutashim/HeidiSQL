@@ -45,7 +45,6 @@ type
     btnMoveDownParam: TToolButton;
     lblDisabledWhy: TLabel;
     spltTop: TSplitter;
-  	pnlDpiHelperOptions: TPanel;
     procedure comboTypeSelect(Sender: TObject);
     procedure btnSaveClick(Sender: TObject);
     procedure btnHelpClick(Sender: TObject);
@@ -78,8 +77,6 @@ type
     procedure btnDiscardClick(Sender: TObject);
     procedure comboDefinerDropDown(Sender: TObject);
     procedure btnMoveParamClick(Sender: TObject);
-    procedure listParametersAfterPaint(Sender: TBaseVirtualTree;
-      TargetCanvas: TCanvas);
   private
     { Private declarations }
     FAlterRoutineType: String;
@@ -96,7 +93,7 @@ type
 
 implementation
 
-uses main, mysql_structures, grideditlinks;
+uses main, dbstructures, grideditlinks;
 
 {$R *.dfm}
 
@@ -104,7 +101,6 @@ uses main, mysql_structures, grideditlinks;
 constructor TfrmRoutineEditor.Create(AOwner: TComponent);
 begin
   inherited;
-  TranslateComponent(Self);
   // Combo items in a .dfm are sporadically lost after an IDE restart,
   // so we set them here to avoid developer annoyance
   comboType.Items.Add(_('Procedure (doesn''t return a result)'));
@@ -151,16 +147,16 @@ begin
   comboDataAccess.ItemIndex := 0;
   comboSecurity.ItemIndex := 0;
   editComment.Clear;
+  case Obj.NodeType of
+    lntProcedure: comboType.ItemIndex := 0;
+    lntFunction: comboType.ItemIndex := 1;
+  end;
   comboDefiner.Text := '';
   comboDefiner.TextHint := f_('Current user (%s)', [Obj.Connection.CurrentUserHostCombination]);
   comboDefiner.Hint := f_('Leave empty for current user (%s)', [Obj.Connection.CurrentUserHostCombination]);
   SynMemoBody.Text := 'BEGIN'+CRLF+CRLF+'END';
   if DBObject.Name <> '' then begin
     // Editing existing routine
-    case Obj.NodeType of
-      lntProcedure: comboType.ItemIndex := 0;
-      lntFunction: comboType.ItemIndex := 1;
-    end;
     DBObject.Connection.ParseRoutineStructure(Obj, Parameters);
     comboReturns.Text := Obj.Returns;
     chkDeterministic.Checked := Obj.Deterministic;
@@ -184,11 +180,11 @@ begin
   btnSave.Enabled := Modified;
   btnDiscard.Enabled := Modified;
   // Buttons are randomly moved, since VirtualTree update, see #440
-  btnSave.Top := Height - btnSave.Height - Round(3 * DpiScaleFactor(MainForm));
+  btnSave.Top := Height - btnSave.Height - 3;
   btnHelp.Top := btnSave.Top;
   btnDiscard.Top := btnSave.Top;
   btnRunProc.Top := btnSave.Top;
-  btnRunProc.Left := Width - btnRunProc.Width - Round(3 * DpiScaleFactor(MainForm));
+  btnRunProc.Left := Width - btnRunProc.Width - 3;
   Mainform.actRunRoutines.Enabled := DBObject.Name <> '';
   Mainform.ShowStatusMsg;
   Screen.Cursor := crDefault;
@@ -200,7 +196,6 @@ begin
   Modified := True;
   btnSave.Enabled := Modified and (editName.Text <> '');
   btnDiscard.Enabled := Modified;
-  listParameters.Header.AutoFitColumns(False, smaUseColumnOption, 0, 0);
   SynMemoCreateCode.Text := ComposeCreateStatement(editName.Text);
 end;
 
@@ -220,7 +215,7 @@ end;
 procedure TfrmRoutineEditor.comboDefinerDropDown(Sender: TObject);
 begin
   // Populate definers from mysql.user
-  (Sender as TComboBox).Items.Assign(GetDefiners);
+  (Sender as TComboBox).Items.Assign(DBObject.Connection.AllUserHostCombinations);
 end;
 
 
@@ -275,13 +270,6 @@ begin
   SelectNode(listParameters, Target);
   listParameters.Repaint;
   Modification(Sender);
-end;
-
-
-procedure TfrmRoutineEditor.listParametersAfterPaint(Sender: TBaseVirtualTree;
-  TargetCanvas: TCanvas);
-begin
-  listParameters.Header.AutoFitColumns(False, smaUseColumnOption, 0, 0);
 end;
 
 
@@ -397,7 +385,7 @@ begin
   if Column = 1 then
     EditLink := TStringEditLink.Create
   else if Column = 2 then begin
-    EnumEditor := TEnumEditorLink.Create(VT);
+    EnumEditor := TEnumEditorLink.Create(VT, True);
     EnumEditor.AllowCustomText := True;
     EnumEditor.ValueList := TStringList.Create;
     for DBDatatype in DBObject.Connection.Datatypes do begin
@@ -408,7 +396,7 @@ begin
     end;
     EditLink := EnumEditor;
   end else if Column = 3 then begin
-    EnumEditor := TEnumEditorLink.Create(VT);
+    EnumEditor := TEnumEditorLink.Create(VT, True);
     EnumEditor.ValueList := TStringList.Create;
     EnumEditor.ValueList.Add('IN');
     EnumEditor.ValueList.Add('OUT');
@@ -484,9 +472,9 @@ begin
     if DBObject.Name <> '' then begin
       // Create temp name
       i := 0;
-      allRoutineNames := DBObject.Connection.GetCol('SELECT ROUTINE_NAME FROM '+DBObject.Connection.QuoteIdent('information_schema')+'.'+DBObject.Connection.QuoteIdent('ROUTINES')+
-        ' WHERE ROUTINE_SCHEMA = '+esc(Mainform.ActiveDatabase)+
-        ' AND ROUTINE_TYPE = '+esc(ProcOrFunc)
+      allRoutineNames := DBObject.Connection.GetCol('SELECT ROUTINE_NAME FROM '+DBObject.Connection.QuoteIdent(DBObject.Connection.InfSch)+'.'+DBObject.Connection.QuoteIdent('ROUTINES')+
+        ' WHERE ROUTINE_SCHEMA = '+DBObject.Connection.EscapeString(DBObject.Connection.Database)+
+        ' AND ROUTINE_TYPE = '+DBObject.Connection.EscapeString(ProcOrFunc)
         );
       TargetExists := ((editName.Text <> DBObject.Name) or (ProcOrFunc <> FAlterRoutineType)) and
         (allRoutineNames.IndexOf(editName.Text) > -1);
@@ -515,7 +503,7 @@ begin
     DBObject.Connection.Query(ComposeCreateStatement(editName.Text));
     // Set editing name if create/alter query was successful
     DBObject.Name := editName.Text;
-    DBObject.CreateCode := '';
+    DBObject.UnloadDetails;
     FAlterRoutineType := ProcOrFunc;
     if FAlterRoutineType = 'PROCEDURE' then DBObject.NodeType := lntProcedure
     else DBObject.NodeType := lntFunction;
@@ -526,7 +514,7 @@ begin
     btnDiscard.Enabled := Modified;
     Mainform.actRunRoutines.Enabled := True;
   except
-    on E:EDatabaseError do begin
+    on E:EDbError do begin
       ErrorDialog(E.Message);
       Result := mrAbort;
     end;
@@ -567,7 +555,7 @@ begin
   Result := Result + 'DETERMINISTIC'+CRLF
     + UpperCase(comboDataAccess.Text)+CRLF
     + 'SQL SECURITY ' + UpperCase(comboSecurity.Text)+CRLF
-    + 'COMMENT ' + esc(editComment.Text)+CRLF
+    + 'COMMENT ' + DBObject.Connection.EscapeString(editComment.Text)+CRLF
     + SynMemoBody.Text;
 end;
 

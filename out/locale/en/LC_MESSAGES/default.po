@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: HeidiSQL\n"
 "POT-Creation-Date: 2012-11-05 21:40\n"
-"PO-Revision-Date: 2019-05-13 07:41+0200\n"
+"PO-Revision-Date: 2021-01-29 08:11+0100\n"
 "Last-Translator: Ansgar Becker <anse@heidisql.com>\n"
 "Language-Team: English (http://www.transifex.com/projects/p/heidisql/language/en/)\n"
 "MIME-Version: 1.0\n"
@@ -15,7 +15,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Language: en\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
-"X-Generator: Poedit 2.2.1\n"
+"X-Generator: Poedit 2.4.2\n"
 
 #. AboutBox..Caption
 #: about.dfm:5
@@ -71,6 +71,24 @@ msgstr "Binary editor"
 #: texteditor.dfm:66 texteditor.dfm:67
 msgid "Wrap long lines"
 msgstr "Wrap long lines"
+
+msgid "Code folding"
+msgstr "Code folding"
+
+msgid "Enable code folding"
+msgstr "Enable code folding"
+
+msgid "Enable code folding in SQL editors"
+msgstr "Enable code folding in SQL editors"
+
+msgid "Insert region start marker"
+msgstr "Insert region start marker"
+
+msgid "Insert region end marker"
+msgstr "Insert region end marker"
+
+msgid "Fold selection"
+msgstr "Fold selection"
 
 #. frmBinEditor..tlbStandard..btnLoadBinary..Hint
 #. frmBinEditor..tlbStandard..btnLoadBinary..Caption
@@ -169,6 +187,12 @@ msgstr "Select columns"
 #: connections.dfm:5 main.dfm:1871
 msgid "Session manager"
 msgstr "Session manager"
+
+msgid "Session"
+msgstr "Session"
+
+msgid "Custom color:"
+msgstr "Custom color:"
 
 #. connform..btnSave..Caption
 #. connform..popupSessions..menuSave..Caption
@@ -276,6 +300,9 @@ msgstr "Password:"
 msgid "Hostname / IP:"
 msgstr "Hostname / IP:"
 
+msgid "Database filename(s)"
+msgstr "Database filename(s)"
+
 #. connform..PageControlDetails..tabSettings..lblUsername..Caption
 #: connections.dfm:261
 msgid "User:"
@@ -340,6 +367,11 @@ msgstr "Prompt for credentials"
 msgid "Use Windows authentication"
 msgstr "Use Windows authentication"
 
+#. connform..PageControlDetails..tabSettings..chkCleartextPluginEnabled..Caption
+#: connections.dfm:737
+msgid "Enable cleartext authentication"
+msgstr "Enable cleartext authentication"
+
 #. connform..PageControlDetails..tabSettings..chkLocalTimeZone....Hint
 #: connections.dfm:406
 msgid "Use your client time zone in date/time SQL functions, e.g. NOW(), for MySQL 4.1.3+"
@@ -355,8 +387,8 @@ msgid "Get full table status"
 msgstr "Get full table status"
 
 # Session > Advanced
-msgid "Disable to speed up internal queries on databases with many InnoDB tables"
-msgstr "Disable to speed up internal queries on databases with many InnoDB tables"
+msgid "Disable to speed up internal queries on databases with many tables"
+msgstr "Disable to speed up internal queries on databases with many tables"
 
 #. connform..PageControlDetails..tabSSHtunnel..lblSSHLocalPort..Caption
 #: connections.dfm:424
@@ -477,11 +509,12 @@ msgstr "Created:"
 msgid "Rename"
 msgstr "Rename"
 
-#. connform..popupSessions..menuSaveAs..Caption
 #. MainForm..ActionList1..actSaveSQLAs..Caption
-#: connections.dfm:742 main.dfm:2256
 msgid "Save as ..."
 msgstr "Save as ..."
+
+msgid "Duplicate / save as ..."
+msgstr "Duplicate / save as ..."
 
 #. connform..popupSessions..menuNewSession2..Caption
 #: connections.dfm:754
@@ -727,6 +760,10 @@ msgstr "Partitions"
 msgid "Export grid rows"
 msgstr "Export grid rows"
 
+# Grid context menu
+msgid "Copy as"
+msgstr "Copy as"
+
 #. frmExportGrid..grpFormat..Caption
 #: exportgrid.dfm:54
 msgid "Output format"
@@ -843,6 +880,9 @@ msgstr "Include auto increment column"
 #: exportgrid.dfm:252
 msgid "Include SQL query"
 msgstr "Include SQL query"
+
+msgid "Remove linebreaks from contents"
+msgstr "Remove linebreaks from contents"
 
 #. frmExportGrid..popupCSVchar..menuCSVcomma..Caption
 #: exportgrid.dfm:266
@@ -2172,15 +2212,17 @@ msgstr "Select all"
 msgid "Select all|Select all items or text"
 msgstr "Select all|Select all items or text"
 
-#. MainForm..ActionList1..actCreateRoutine..Caption
-#: main.dfm:2401
-msgid "Stored routine"
-msgstr "Stored routine"
+msgid "Stored procedure"
+msgstr "Stored procedure"
 
-#. MainForm..ActionList1..actCreateRoutine..Hint
-#: main.dfm:2402
-msgid "Create stored routine|Create stored procedure or function"
-msgstr "Create stored routine|Create stored procedure or function"
+msgid "Create stored procedure"
+msgstr "Create stored procedure"
+
+msgid "Stored function"
+msgstr "Stored function"
+
+msgid "Create stored function"
+msgstr "Create stored function"
 
 #. MainForm..ActionList1..actNewQueryTab..Caption
 #: main.dfm:2408
@@ -2493,6 +2535,66 @@ msgstr "More values ..."
 #. Quick filters - more values
 msgid "Table too large (>%s), avoiding long running SELECT query"
 msgstr "Table too large (>%s), avoiding long running SELECT query"
+
+msgid "Quick filter: Column = Focused"
+msgstr "Quick filter: Column = Focused"
+
+msgid "Quick filter: Column != Focused"
+msgstr "Quick filter: Column != Focused"
+
+msgid "Quick filter: Column > Focused"
+msgstr "Quick filter: Column > Focused"
+
+msgid "Quick filter: Column < Focused"
+msgstr "Quick filter: Column < Focused"
+
+msgid "Quick filter: Column LIKE Focused%"
+msgstr "Quick filter: Column LIKE Focused%"
+
+msgid "Quick filter: Column LIKE %Focused"
+msgstr "Quick filter: Column LIKE %Focused"
+
+msgid "Quick filter: Column LIKE %Focused%"
+msgstr "Quick filter: Column LIKE %Focused%"
+
+msgid "Quick filter: Column = Prompt"
+msgstr "Quick filter: Column = Prompt"
+
+msgid "Quick filter: Column != Prompt"
+msgstr "Quick filter: Column != Prompt"
+
+msgid "Quick filter: Column > Prompt"
+msgstr "Quick filter: Column > Prompt"
+
+msgid "Quick filter: Column < Prompt"
+msgstr "Quick filter: Column < Prompt"
+
+msgid "Quick filter: Column LIKE %Prompt%"
+msgstr "Quick filter: Column LIKE %Prompt%"
+
+msgid "Quick filter: Column IS NULL"
+msgstr "Quick filter: Column IS NULL"
+
+msgid "Quick filter: Column IS NOT NULL"
+msgstr "Quick filter: Column IS NOT NULL"
+
+msgid "Quick filter: Column = Clipboard"
+msgstr "Quick filter: Column = Clipboard"
+
+msgid "Quick filter: Column != Clipboard"
+msgstr "Quick filter: Column != Clipboard"
+
+msgid "Quick filter: Column > Clipboard"
+msgstr "Quick filter: Column > Clipboard"
+
+msgid "Quick filter: Column < Clipboard"
+msgstr "Quick filter: Column < Clipboard"
+
+msgid "Quick filter: Column LIKE %Clipboard%"
+msgstr "Quick filter: Column LIKE %Clipboard%"
+
+msgid "Quick filter: Column IN (Clipboard)"
+msgstr "Quick filter: Column IN (Clipboard)"
 
 #. MainForm..popupSqlLog..Copylinetonewquerytab1..Caption
 #: main.dfm:9000
@@ -2856,6 +2958,9 @@ msgstr "Remember filters, sorting and column selection across sessions"
 #. Preferences > Data
 msgid "Show values in foreign key columns"
 msgstr "Show values in foreign key columns"
+
+msgid "Connected table has too many rows. Foreign key drop-down is limited to %d items."
+msgstr "Connected table has too many rows. Foreign key drop-down is limited to %d items."
 
 #. optionsform..pagecontrolMain..tabShortcuts..Caption
 #: options.dfm:843
@@ -3823,6 +3928,9 @@ msgstr "Delete session \"%s\"?"
 msgid "Session \"%s\" already exists!"
 msgstr "Session \"%s\" already exists!"
 
+msgid "If you want to change the case of a session name, you need to rename it before doing the actual case change."
+msgstr "If you want to change the case of a session name, you need to rename it before doing the actual case change."
+
 #: connections.pas:658
 msgid "Error while moving registry key: %s"
 msgstr "Error while moving registry key: %s"
@@ -3945,8 +4053,8 @@ msgid "Assign procedure \"%s\""
 msgstr "Assign procedure \"%s\""
 
 #: dbconnection.pas:1047
-msgid "Your %s is out-dated or somehow incompatible to %s. Please use the one from the installer, or just reinstall %s."
-msgstr "Your %s is out-dated or somehow incompatible to %s. Please use the one from the installer, or just reinstall %s."
+msgid "Your %s is incompatible to %s, or your system is missing a dependent library."
+msgstr "Your %s is incompatible to %s, or your system is missing a dependent library."
 
 #: dbconnection.pas:1121
 msgid "SSL parameters successfully set."
@@ -4020,9 +4128,19 @@ msgstr "Trying to load library with full path: %s"
 msgid "Library error in %s: Could not find procedure address for \"%s\""
 msgstr "Library error in %s: Could not find procedure address for \"%s\""
 
+msgid "Library %s could not be loaded. Please select a different one."
+msgstr "Library %s could not be loaded. Please select a different one."
+
+#. DLL loading failed entirely
+msgid "Library %s seems unusable. Please select a different one."
+msgstr "Library %s seems unusable. Please select a different one."
+
 #: dbconnection.pas:1392
-msgid "Cannot find a usable %s. Please launch %s from the directory where you have installed it."
-msgstr "Cannot find a usable %s. Please launch %s from the directory where you have installed it."
+msgid "Please launch %s from the directory where you have installed it. Or just reinstall %s."
+msgstr "Please launch %s from the directory where you have installed it. Or just reinstall %s."
+
+msgid "Internal error %d: %s"
+msgstr "Internal error %d: %s"
 
 #: dbconnection.pas:1430
 msgid "Login to %s:"
@@ -4240,8 +4358,11 @@ msgid "Save new %s?"
 msgstr "Save new %s?"
 
 #: helpers.pas:2821
-msgid "Could not open URL: %s"
-msgstr "Could not open URL: %s"
+msgid "Could not open %s (%s)"
+msgstr "Could not open %s (%s)"
+
+msgid "Could not open %s (%s) - trying again without SSL..."
+msgstr "Could not open %s (%s) - trying again without SSL..."
 
 #: helpers.pas:2829
 msgid "Server did not send required \"Content-Length\" header: %s"
@@ -4354,6 +4475,9 @@ msgstr "Settings successfully restored from %s"
 #. Automatic export of portable settings
 msgid "Portable settings file written, with %d changes."
 msgstr "Portable settings file written, with %d changes."
+
+msgid "Switching to read-only mode. Settings won't be saved. Use the command line parameter %s to use a custom file path."
+msgstr "Switching to read-only mode. Settings won't be saved. Use the command line parameter %s to use a custom file path."
 
 #: main.pas:2142
 msgid "Splitting SQL queries ..."
@@ -4545,9 +4669,18 @@ msgstr "  [Cancel] to cancel file opening."
 msgid "Execute query file(s)?"
 msgstr "Execute query file(s)?"
 
+msgid "%s file(s) processed, in %s"
+msgstr "%s file(s) processed, in %s"
+
 #: main.pas:2968
 msgid "Could not load file(s):"
 msgstr "Could not load file(s):"
+
+msgid "File \"%s\" executed, with %s queries and %s affected rows"
+msgstr "File \"%s\" executed, with %s queries and %s affected rows"
+
+msgid "File \"%s\" partially executed, with %s queries and %s affected rows"
+msgstr "File \"%s\" partially executed, with %s queries and %s affected rows"
 
 msgid "Could not open file %s"
 msgstr "Could not open file %s"
@@ -4740,6 +4873,10 @@ msgstr "Uptime"
 msgid "unknown"
 msgstr "unknown"
 
+#. Give the user some hint what he can do with his SSL related connection error
+msgid "Please select a different library in your session settings. (Current: \"%s\")"
+msgstr "Please select a different library in your session settings. (Current: \"%s\")"
+
 #: main.pas:5261
 msgid "Specify filter-value..."
 msgstr "Specify filter-value..."
@@ -4800,8 +4937,8 @@ msgid "Writing to session log file disabled now"
 msgstr "Writing to session log file disabled now"
 
 #: main.pas:6577
-msgid "Please select a process in the above list."
-msgstr "Please select a process in the above list."
+msgid "Please select a process with a running query"
+msgstr "Please select a process with a running query"
 
 #: main.pas:6990
 msgid "Reading Databases..."
@@ -5002,37 +5139,59 @@ msgstr "A stored function can only have IN parameters so context editing is bloc
 msgid "Routine \"%s\" already exists."
 msgstr "Routine \"%s\" already exists."
 
-#: searchreplace.pas:60
-msgid "Search patterns:"
-msgstr "Search patterns:"
-
-#: searchreplace.pas:60
 msgid "Start of line"
 msgstr "Start of line"
 
-#: searchreplace.pas:60
 msgid "End of line"
 msgstr "End of line"
 
-#: searchreplace.pas:60
-msgid "Any word character"
-msgstr "Any word character"
+msgid "Any word char"
+msgstr "Any word char"
 
-#: searchreplace.pas:60
+msgid "Any non-word char"
+msgstr "Any non-word char"
+
 msgid "Digit"
 msgstr "Digit"
 
-#: searchreplace.pas:60
+msgid "Any char except digits"
+msgstr "Any char except digits"
+
 msgid "Whitespace"
 msgstr "Whitespace"
 
-#: searchreplace.pas:60
-msgid "Replacement patterns:"
-msgstr "Replacement patterns:"
+msgid "Any char except whitespaces"
+msgstr "Any char except whitespaces"
 
-#: searchreplace.pas:60
-msgid "Callback parentheses"
-msgstr "Callback parentheses"
+msgid "New line"
+msgstr "New line"
+
+msgid "Tabulator"
+msgstr "Tabulator"
+
+msgid "Entire matched text"
+msgstr "Entire matched text"
+
+msgid "Text from first captured group"
+msgstr "Text from first captured group"
+
+msgid "Text from second captured group"
+msgstr "Text from second captured group"
+
+msgid "Text from third captured group"
+msgstr "Text from third captured group"
+
+msgid "Lowercase following char"
+msgstr "Lowercase following char"
+
+msgid "Lowercase following block"
+msgstr "Lowercase following block"
+
+msgid "Uppercase following char"
+msgstr "Uppercase following char"
+
+msgid "Uppercase following block"
+msgstr "Uppercase following block"
 
 #: sqlhelp.pas:140
 msgid "No help available for this keyword or no keyword was selected."
@@ -5805,6 +5964,12 @@ msgstr "GUID"
 msgid "GUID without braces"
 msgstr "GUID without braces"
 
+msgid "GUID lowercase"
+msgstr "GUID lowercase"
+
+msgid "GUID lowercase without braces"
+msgstr "GUID lowercase without braces"
+
 msgid "Query timeout:"
 msgstr "Query timeout:"
 
@@ -6168,6 +6333,9 @@ msgstr "Add comments"
 msgid "Remove AUTO_INCREMENT clauses"
 msgstr "Remove AUTO_INCREMENT clauses"
 
+msgid "Remove DEFINER clauses"
+msgstr "Remove DEFINER clauses"
+
 msgid "%s%s missing."
 msgstr "%s%s missing."
 
@@ -6221,6 +6389,12 @@ msgstr "Go to database tree"
 
 msgid "Go to table filter"
 msgstr "Go to table filter"
+
+msgid "Switch to query/results"
+msgstr "Switch to query/results"
+
+msgid "Multi column filter"
+msgstr "Multi column filter"
 
 msgid "Tab 1"
 msgstr "Tab 1"
@@ -6346,6 +6520,9 @@ msgstr "Plugin directory %s could not be set."
 msgid "Background color:"
 msgstr "Background color:"
 
+msgid "Hide database pattern:"
+msgstr "Hide database pattern:"
+
 msgid "Backup file could not be deleted: %s"
 msgstr "Backup file could not be deleted: %s"
 
@@ -6359,8 +6536,133 @@ msgstr "Files"
 msgid "Reopen previously used SQL files and unsaved content in tabs *"
 msgstr "Reopen previously used SQL files and unsaved content in tabs *"
 
-msgid "Auto-storing tab setup failed"
-msgstr "Auto-storing tab setup failed"
+msgid "Storing tab setup failed"
+msgstr "Storing tab setup failed"
 
-msgid "Auto-restoring tab setup failed"
-msgstr "Auto-restoring tab setup failed"
+msgid "Restoring tab setup failed"
+msgstr "Restoring tab setup failed"
+
+msgid "Tabs won't be stored in this session."
+msgstr "Tabs won't be stored in this session."
+
+msgid "Installing %s might help. Please download from %s"
+msgstr "Installing %s might help. Please download from %s"
+
+msgid "Security issue: Using %s %s with insecure %s."
+msgstr "Security issue: Using %s %s with insecure %s."
+
+msgid "You should install %s from %s"
+msgstr "You should install %s from %s"
+
+msgid "Open URL"
+msgstr "Open URL"
+
+msgid "Open URL in your webbrowser"
+msgstr "Open URL in your webbrowser"
+
+msgid "Find database files..."
+msgstr "Find database files..."
+
+msgid "Add database files..."
+msgstr "Add database files..."
+
+msgid "Detach database ..."
+msgstr "Detach database ..."
+
+msgid "Detach attached database"
+msgstr "Detach attached database"
+
+msgid "Attach database ..."
+msgstr "Attach database ..."
+
+msgid "Attach new or existing database file"
+msgstr "Attach new or existing database file"
+
+msgid "Detach database \"%s\" from \"%s\" session?"
+msgstr "Detach database \"%s\" from \"%s\" session?"
+
+msgid "Note: The database file will not get deleted."
+msgstr "Note: The database file will not get deleted."
+
+msgid "Show SQL completion proposal"
+msgstr "Show SQL completion proposal"
+
+msgid "Find matches in middle of entered text"
+msgstr "Find matches in middle of entered text"
+
+msgid "Wait longer for sorting?"
+msgstr "Wait longer for sorting?"
+
+msgid "Sort operation on grid containing more than %d rows can take longer. Do you want to wait for it?"
+msgstr "Sort operation on grid containing more than %d rows can take longer. Do you want to wait for it?"
+
+msgid "Sort warning on grid rows:"
+msgstr "Sort warning on grid rows:"
+
+msgid "Size &Column to Fit"
+msgstr "Size &Column to Fit"
+
+msgid "Size &All Columns to Fit"
+msgstr "Size &All Columns to Fit"
+
+msgid "This view probably contains an error in its code."
+msgstr "This view probably contains an error in its code."
+
+msgid "Rename query tab"
+msgstr "Rename query tab"
+
+msgid "Enter new name"
+msgstr "Enter new name"
+
+msgid "Analyzing %s rows..."
+msgstr "Analyzing %s rows..."
+
+msgid "New table"
+msgstr "New table"
+
+msgid "Detect CSV layout"
+msgstr "Detect CSV layout"
+
+msgid "Scan file..."
+msgstr "Scan file..."
+
+msgid "Ok, create table"
+msgstr "Ok, create table"
+
+msgid "Current query is empty"
+msgstr "Current query is empty"
+
+msgid "Please move the cursor inside the query you want to use."
+msgstr "Please move the cursor inside the query you want to use."
+
+#. Keyboard shortcut settings
+msgid "Keyboard shortcut [%s] is already assigned to \"%s\"."
+msgstr "Keyboard shortcut [%s] is already assigned to \"%s\"."
+
+#. Keyboard shortcut settings
+msgid "Remove it there and assign to \"%s\" instead?"
+msgstr "Remove it there and assign to \"%s\" instead?"
+
+msgid "Really auto-detect file encoding?"
+msgstr "Really auto-detect file encoding?"
+
+msgid "Auto detecting the encoding of a file is highly discouraged. You may experience data loss if the detection fails."
+msgstr "Auto detecting the encoding of a file is highly discouraged. You may experience data loss if the detection fails."
+
+msgid "To avoid this message select the correct encoding before pressing Open."
+msgstr "To avoid this message select the correct encoding before pressing Open."
+
+msgid "keyword"
+msgstr "keyword"
+
+msgid "Check constraints"
+msgstr "Check constraints"
+
+msgid "Check clause"
+msgstr "Check clause"
+
+msgid "Log queries to file:"
+msgstr "Log queries to file:"
+
+msgid "Logging disabled"
+msgstr "Logging disabled"

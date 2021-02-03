@@ -12,9 +12,9 @@ uses
   Classes, SysUtils, Graphics, GraphUtil, ClipBrd, Dialogs, Forms, Controls, ShellApi,
   Windows, ShlObj, ActiveX, VirtualTrees, SynRegExpr, Messages, Math,
   Registry, DateUtils, Generics.Collections, StrUtils, AnsiStrings, TlHelp32, Types,
-  dbconnection, mysql_structures, SynMemo, Menus, WinInet, gnugettext, Themes,
+  dbconnection, dbstructures, SynMemo, Menus, WinInet, gnugettext, Themes,
   Character, ImgList, System.UITypes, ActnList, WinSock, IOUtils, StdCtrls, ComCtrls,
-  CommCtrl, Vcl.Imaging.pngimage;
+  CommCtrl, Winapi.KnownFolders, SynUnicode;
 
 type
 
@@ -26,10 +26,14 @@ type
 
   TLineBreaks = (lbsNone, lbsWindows, lbsUnix, lbsMac, lbsWide, lbsMixed);
 
+  TUTF8NoBOMEncoding = class(TUTF8Encoding)
+    public
+      function GetPreamble: TBytes; override;
+  end;
+
   TDBObjectEditor = class(TFrame)
     private
       FModified: Boolean;
-      FDefiners: TStringList;
       procedure SetModified(Value: Boolean);
     protected
     public
@@ -38,7 +42,6 @@ type
       destructor Destroy; override;
       procedure Init(Obj: TDBObject); virtual;
       function DeInit: TModalResult;
-      function GetDefiners: TStringList;
       property Modified: Boolean read FModified write SetModified;
       function ApplyModifications: TModalResult; virtual; abstract;
   end;
@@ -50,10 +53,12 @@ type
       FOwner: TSQLBatch;
       function GetSize: Integer;
       function GetSQL: String;
+      function GetSQLWithoutComments: String;
     public
       LeftOffset, RightOffset: Integer;
       constructor Create(Owner: TSQLBatch);
       property SQL: String read GetSQL;
+      property SQLWithoutComments: String read GetSQLWithoutComments;
       property Size: Integer read GetSize;
   end;
   TSQLBatch = class(TObjectList<TSQLSentence>)
@@ -71,6 +76,7 @@ type
     private
       FOwner: TComponent;
       FURL: String;
+      FLastContent: String;
       FBytesRead: Integer;
       FContentLength: Integer;
       FTimeOut: Cardinal;
@@ -83,6 +89,16 @@ type
       property TimeOut: Cardinal read FTimeOut write FTimeOut;
       property BytesRead: Integer read FBytesRead;
       property ContentLength: Integer read FContentLength;
+      property LastContent: String read FLastContent;
+  end;
+
+  // Extended string list with support for empty values
+  TExtStringList = class(TStringList)
+    private
+      function GetValue(const Name: string): string;
+      procedure SetValue(const Name, Value: string); reintroduce;
+    public
+      property Values[const Name: string]: string read GetValue write SetValue;
   end;
 
   // Threading stuff
@@ -103,12 +119,6 @@ type
     FRowsAffected: Int64;
     FRowsFound: Int64;
     FWarningCount: Int64;
-    FLogMsg: String;
-    FLogCategory: TDBLogCategory;
-    procedure BeforeQuery;
-    procedure AfterQuery;
-    procedure BatchFinished;
-    procedure Log;
   public
     property Connection: TDBConnection read FConnection;
     property Batch: TSQLBatch read FBatch;
@@ -125,12 +135,12 @@ type
     property ErrorMessage: String read FErrorMessage;
     constructor Create(Connection: TDBConnection; Batch: TSQLBatch; TabNumber: Integer);
     procedure Execute; override;
-    procedure LogFromOutside(Msg: String; Category: TDBLogCategory);
+    procedure LogFromThread(Msg: String; Category: TDBLogCategory);
   end;
 
   TAppSettingDataType = (adInt, adBool, adString);
   TAppSettingIndex = (asHiddenColumns, asFilter, asSort, asDisplayedColumnsSorted, asLastSessions,
-    asLastActiveSession, asAutoReconnect, asRestoreLastUsedDB, asLastUsedDB, asTreeBackground,
+    asLastActiveSession, asAutoReconnect, asRestoreLastUsedDB, asLastUsedDB, asTreeBackground, asIgnoreDatabasePattern, asLogFileDdl, asLogFileDml, asLogFilePath,
     asFontName, asFontSize, asTabWidth, asDataFontName, asDataFontSize, asDataLocalNumberFormat, asHintsOnResultTabs, asHightlightSameTextBackground,
     asLogsqlnum, asLogsqlwidth, asSessionLogsDirectory, asLogHorizontalScrollbar, asSQLColActiveLine,
     asSQLColMatchingBraceForeground, asSQLColMatchingBraceBackground,
@@ -138,29 +148,30 @@ type
     asLogToFile, asMainWinMaximized, asMainWinLeft, asMainWinTop, asMainWinWidth,
     asMainWinHeight, asMainWinOnMonitor, asCoolBandIndex, asCoolBandBreak, asCoolBandWidth, asToolbarShowCaptions, asQuerymemoheight, asDbtreewidth,
     asDataPreviewHeight, asDataPreviewEnabled, asLogHeight, asQueryhelperswidth, asStopOnErrorsInBatchMode,
-    asWrapLongLines, asDisplayBLOBsAsText, asSingleQueries, asMemoEditorWidth, asMemoEditorHeight, asMemoEditorMaximized,
+    asWrapLongLines, asCodeFolding, asDisplayBLOBsAsText, asSingleQueries, asMemoEditorWidth, asMemoEditorHeight, asMemoEditorMaximized,
     asMemoEditorWrap, asDelimiter, asSQLHelpWindowLeft, asSQLHelpWindowTop, asSQLHelpWindowWidth,
     asSQLHelpWindowHeight, asSQLHelpPnlLeftWidth, asSQLHelpPnlRightTopHeight, asHost,
-    asUser, asPassword, asWindowsAuth, asLoginPrompt, asPort,
+    asUser, asPassword, asCleartextPluginEnabled, asWindowsAuth, asLoginPrompt, asPort, asLibrary, asAllProviders,
     asPlinkExecutable, asSSHtunnelHost, asSSHtunnelHostPort, asSSHtunnelPort, asSSHtunnelUser,
     asSSHtunnelPassword, asSSHtunnelTimeout, asSSHtunnelPrivateKey, asSSLActive, asSSLKey,
     asSSLCert, asSSLCA, asSSLCipher, asNetType, asCompressed, asLocalTimeZone, asQueryTimeout, asKeepAlive,
     asStartupScriptFilename, asDatabases, asComment, asDatabaseFilter, asTableFilter, asExportSQLCreateDatabases,
     asExportSQLCreateTables, asExportSQLDataHow, asExportSQLDataInsertSize, asExportSQLFilenames, asExportZIPFilenames, asExportSQLDirectories,
-    asExportSQLDatabase, asExportSQLServerDatabase, asExportSQLOutput, asExportSQLAddComments, asExportSQLRemoveAutoIncrement,
+    asExportSQLDatabase, asExportSQLServerDatabase, asExportSQLOutput, asExportSQLAddComments, asExportSQLRemoveAutoIncrement, asExportSQLRemoveDefiner,
     asGridExportWindowWidth, asGridExportWindowHeight, asGridExportOutputCopy, asGridExportOutputFile,
     asGridExportFilename, asGridExportRecentFiles, asGridExportEncoding, asGridExportFormat, asGridExportSelection,
-    asGridExportColumnNames, asGridExportIncludeAutoInc, asGridExportIncludeQuery,
+    asGridExportColumnNames, asGridExportIncludeAutoInc, asGridExportIncludeQuery, asGridExportRemoveLinebreaks,
     asGridExportSeparator, asGridExportEncloser, asGridExportTerminator, asGridExportNull,
 
-    asGridExportClpFormat, asGridExportClpColumnNames, asGridExportClpIncludeAutoInc,
+    asGridExportClpColumnNames, asGridExportClpIncludeAutoInc, asGridExportClpRemoveLinebreaks,
     asGridExportClpSeparator, asGridExportClpEncloser, asGridExportClpTerminator, asGridExportClpNull,
 
     asCSVImportSeparator, asCSVImportEncloser, asCSVImportTerminator, asCSVImportFieldEscaper, asCSVImportWindowWidth, asCSVImportWindowHeight,
     asCSVImportFilename, asCSVImportFieldsEnclosedOptionally, asCSVImportIgnoreLines, asCSVImportLowPriority, asCSVImportLocalNumbers,
-    asCSVImportDuplicateHandling, asCSVImportParseMethod, asUpdatecheck, asUpdatecheckBuilds,
-    asUpdatecheckInterval, asUpdatecheckLastrun, asTableToolsWindowWidth, asTableToolsWindowHeight, asTableToolsTreeWidth,
-    asTableToolsFindText, asTableToolsDatatype, asTableToolsFindCaseSensitive, asTableToolsFindMatchType, asFileImportWindowWidth, asFileImportWindowHeight,
+    asCSVImportDuplicateHandling, asCSVImportParseMethod,
+    asUpdatecheck, asUpdatecheckBuilds, asUpdatecheckInterval, asUpdatecheckLastrun, asUpdateCheckWindowWidth, asUpdateCheckWindowHeight,
+    asTableToolsWindowWidth, asTableToolsWindowHeight, asTableToolsTreeWidth,
+    asTableToolsFindTextTab, asTableToolsFindText, asTableToolsFindSQL, asTableToolsDatatype, asTableToolsFindCaseSensitive, asTableToolsFindMatchType, asFileImportWindowWidth, asFileImportWindowHeight,
     asEditVarWindowWidth, asEditVarWindowHeight, asUsermanagerWindowWidth, asUsermanagerWindowHeight, asUsermanagerListWidth,
     asSelectDBOWindowWidth, asSelectDBOWindowHeight,
     asSessionManagerListWidth, asSessionManagerWindowWidth, asSessionManagerWindowHeight, asSessionManagerWindowLeft, asSessionManagerWindowTop,
@@ -168,8 +179,8 @@ type
     asCopyTableData, asCopyTableRecentFilter, asServerVersion, asServerVersionFull, asLastConnect,
     asConnectCount, asRefusedCount, asSessionCreated, asDoUsageStatistics,
     asLastUsageStatisticCall, asWheelZoom, asDisplayBars, asMySQLBinaries, asCustomSnippetsDirectory,
-    asPromptSaveFileOnTabClose, asRestoreTabs, asWarnUnsafeUpdates, asQueryWarningsMessage,
-    asCompletionProposal, asCompletionProposalWidth, asCompletionProposalNbLinesInWindow, asAutoUppercase,
+    asPromptSaveFileOnTabClose, asRestoreTabs, asWarnUnsafeUpdates, asQueryWarningsMessage, asQueryGridLongSortRowNum,
+    asCompletionProposal, asCompletionProposalSearchOnMid, asCompletionProposalWidth, asCompletionProposalNbLinesInWindow, asAutoUppercase,
     asTabsToSpaces, asFilterPanel, asAllowMultipleInstances, asFindDialogSearchHistory, asGUIFontName, asGUIFontSize,
     asTheme, asIconPack, asWebSearchBaseUrl,
     asFindDialogReplaceHistory, asMaxQueryResults, asLogErrors,
@@ -184,6 +195,8 @@ type
     asColumnSelectorWidth, asColumnSelectorHeight, asDonatedEmail, asFavoriteObjects, asFavoriteObjectsOnly, asFullTableStatus, asLineBreakStyle,
     asPreferencesWindowWidth, asPreferencesWindowHeight,
     asFileDialogEncoding,
+    asThemePreviewWidth, asThemePreviewHeight, asThemePreviewTop, asThemePreviewLeft,
+    asCreateDbCollation,
     asUnused);
   TAppSetting = record
     Name: String;
@@ -200,9 +213,11 @@ type
       FSessionPath: String;
       FRegistry: TRegistry;
       FPortableMode: Boolean;
+      FPortableModeReadOnly: Boolean;
       FRestoreTabsInitValue: Boolean;
       FSettingsFile: String;
       FSettings: Array[TAppSettingIndex] of TAppSetting;
+      const FPortableLockFileBase: String='portable.lock';
       procedure InitSetting(Index: TAppSettingIndex; Name: String;
         DefaultInt: Integer=0; DefaultBool: Boolean=False; DefaultString: String='';
         Session: Boolean=False);
@@ -242,10 +257,11 @@ type
       procedure ResetPath;
       property SessionPath: String read FSessionPath write SetSessionPath;
       property PortableMode: Boolean read FPortableMode;
+      property PortableModeReadOnly: Boolean read FPortableModeReadOnly write FPortableModeReadOnly;
       property Writes: Integer read FWrites;
       procedure ImportSettings(Filename: String);
-      procedure ExportSettings(Filename: String); overload;
-      procedure ExportSettings; overload;
+      function ExportSettings(Filename: String): Boolean; overload;
+      function ExportSettings: Boolean; overload;
       // Common directories
       function DirnameUserAppData: String;
       function DirnameUserDocuments: String;
@@ -260,11 +276,10 @@ type
   function implodestr(seperator: String; a: TStrings) :String;
   function Explode(Separator, Text: String) :TStringList;
   procedure ExplodeQuotedList(Text: String; var List: TStringList);
-  function sstr(str: String; len: Integer) : String;
+  function StrEllipsis(const S: String; MaxLen: Integer; FromLeft: Boolean=True): String;
   function encrypt(str: String): String;
   function decrypt(str: String): String;
   function HTMLSpecialChars(str: String): String;
-  function BestTableName(Data: TDBQuery): String;
   function EncodeURLParam(const Value: String): String;
   procedure StreamWrite(S: TStream; Text: String = '');
   function _GetFileSize(Filename: String): Int64;
@@ -273,13 +288,11 @@ type
   function CleanupNumber(Str: String): String;
   function IsInt(Str: String): Boolean;
   function IsFloat(Str: String): Boolean;
-  function esc(Text: String; ProcessJokerChars: Boolean=false; DoQuote: Boolean=True): String;
   function ScanLineBreaks(Text: String): TLineBreaks;
   function CountLineBreaks(Text: String; LineBreak: TLineBreaks=lbsWindows): Cardinal;
   function fixNewlines(txt: String): String;
-  function ExtractLiteral(var SQL: String; Prefix: String): String;
-  function GetShellFolder(CSIDL: integer): string;
-  function goodfilename( str: String ): String;
+  function GetShellFolder(FolderId: TGUID): String;
+  function ValidFilename(Str: String): String;
   function ExtractBaseFileName(FileName: String): String;
   function FormatNumber( str: String; Thousands: Boolean=True): String; Overload;
   function UnformatNumber(Val: String): String;
@@ -287,7 +300,7 @@ type
   function FormatNumber( flt: Double; decimals: Integer = 0; Thousands: Boolean=True): String; Overload;
   procedure ShellExec(cmd: String; path: String=''; params: String='');
   function getFirstWord(text: String; MustStartWithWordChar: Boolean=True): String;
-  function RegExprGetMatch(Expression: String; var Input: String; ReturnMatchNum: Integer; DeleteFromSource: Boolean): String; Overload;
+  function RegExprGetMatch(Expression: String; var Input: String; ReturnMatchNum: Integer; DeleteFromSource, CaseInsensitive: Boolean): String; Overload;
   function RegExprGetMatch(Expression: String; Input: String; ReturnMatchNum: Integer): String; Overload;
   function FormatByteNumber( Bytes: Int64; Decimals: Byte = 1 ): String; Overload;
   function FormatByteNumber( Bytes: String; Decimals: Byte = 1 ): String; Overload;
@@ -303,20 +316,20 @@ type
   function WideHexToBin(text: String): AnsiString;
   function BinToWideHex(bin: AnsiString): String;
   procedure FixVT(VT: TVirtualStringTree; MultiLineCount: Word=1);
-  procedure FixDropDownButtons(Form: TForm);
   function GetTextHeight(Font: TFont): Integer;
   function ColorAdjustBrightness(Col: TColor; Shift: SmallInt): TColor;
   function ComposeOrderClause(Cols: TOrderColArray): String;
   procedure DeInitializeVTNodes(Sender: TBaseVirtualTree);
   function FindNode(VT: TVirtualStringTree; idx: Int64; ParentNode: PVirtualNode): PVirtualNode;
   procedure SelectNode(VT: TVirtualStringTree; idx: Int64; ParentNode: PVirtualNode=nil); overload;
-  procedure SelectNode(VT: TVirtualStringTree; Node: PVirtualNode); overload;
+  procedure SelectNode(VT: TVirtualStringTree; Node: PVirtualNode; ClearSelection: Boolean=True); overload;
   procedure GetVTSelection(VT: TVirtualStringTree; var SelectedCaptions: TStringList; var FocusedCaption: String);
   procedure SetVTSelection(VT: TVirtualStringTree; SelectedCaptions: TStringList; FocusedCaption: String);
   function GetNextNode(Tree: TVirtualStringTree; CurrentNode: PVirtualNode; Selected: Boolean=False): PVirtualNode;
   function GetPreviousNode(Tree: TVirtualStringTree; CurrentNode: PVirtualNode; Selected: Boolean=False): PVirtualNode;
   function DateBackFriendlyCaption(d: TDateTime): String;
-  procedure InheritFont(AFont: TFont);
+  function DateTimeToStrDef(DateTime: TDateTime; Default: String): String;
+  function TruncDef(X: Real; Default: Int64): Int64;
   function GetLightness(AColor: TColor): Byte;
   function ReformatSQL(SQL: String): String;
   function ParamBlobToStr(lpData: Pointer): String;
@@ -331,6 +344,7 @@ type
   function StringListCompareAnythingAsc(List: TStringList; Index1, Index2: Integer): Integer;
   function StringListCompareAnythingDesc(List: TStringList; Index1, Index2: Integer): Integer;
   function StringListCompareByValue(List: TStringList; Index1, Index2: Integer): Integer;
+  function StringListCompareByLength(List: TStringList; Index1, Index2: Integer): Integer;
   function GetImageLinkTimeStamp(const FileName: string): TDateTime;
   function IsEmpty(Str: String): Boolean;
   function IsNotEmpty(Str: String): Boolean;
@@ -338,6 +352,7 @@ type
   function MessageDialog(const Title, Msg: string; DlgType: TMsgDlgType; Buttons: TMsgDlgButtons; KeepAskingSetting: TAppSettingIndex=asUnused): Integer; overload;
   function ErrorDialog(Msg: string): Integer; overload;
   function ErrorDialog(const Title, Msg: string): Integer; overload;
+  function GetLocaleString(const ResourceId: Integer): WideString;
   function GetHTMLCharsetByEncoding(Encoding: TEncoding): String;
   procedure ParseCommandLine(CommandLine: String; var ConnectionParams: TConnectionParameters; var FileNames: TStringList);
   function f_(const Pattern: string; const Args: array of const): string;
@@ -355,10 +370,12 @@ type
   function GetCurrentPackageFullName(out Len: Cardinal; Name: PWideChar): Integer; stdcall; external kernel32 delayed;
   function GetUwpFullName: String;
   function RunningAsUwp: Boolean;
-  function DpiScaleFactor(Form: TForm): Double;
   function GetThemeColor(Color: TColor): TColor;
   function ThemeIsDark(ThemeName: String): Boolean;
-  function ProcessExists(pid: Cardinal): Boolean;
+  function ProcessExists(pid: Cardinal; ExeNamePattern: String): Boolean;
+  procedure ToggleCheckBoxWithoutClick(chk: TCheckBox; State: Boolean);
+  function SynCompletionProposalPrettyText(ImageIndex: Integer; LeftText, CenterText, RightText: String; LeftColor: TColor=-1; CenterColor: TColor=-1; RightColor: TColor=-1): String;
+  function PopupComponent(Sender: TObject): TComponent;
 
 var
   AppSettings: TAppSettings;
@@ -367,10 +384,13 @@ var
   mtCriticalConfirmation: TMsgDlgType = mtCustom;
   ConfirmIcon: TIcon;
   NumberChars: TSysCharSet;
+  LibHandleUser32: THandle;
+  UTF8NoBOMEncoding: TUTF8NoBOMEncoding;
+  DateTimeNever: TDateTime;
 
 implementation
 
-uses main;
+uses main, extra_controls;
 
 
 
@@ -432,7 +452,7 @@ begin
         Result.Add(Text);
       break;
     end;
-    Item := Trim(Copy(Text, 1, i-1));
+    Item := Copy(Text, 1, i-1);
     Result.Add(Item);
     Delete(Text, 1, i-1+Length(Separator));
   end;
@@ -446,14 +466,18 @@ end;
   @param integer Wished Length of string
   @return string
 }
-function sstr(str: String; len: Integer) : String;
+function StrEllipsis(const S: String; MaxLen: Integer; FromLeft: Boolean=True): String;
 begin
-  if length(str) > len then
-  begin
-    str := copy(str, 0, len-1);
-    str := str + '…';
+  Result := S;
+  if Length(Result) <= MaxLen then
+    Exit;
+  if FromLeft then begin
+    SetLength(Result, MaxLen);
+    Result[MaxLen] := '…';
+  end else begin
+    Result := Copy(Result, Length(Result)-MaxLen, Length(Result));
+    Result := '…' + Result;
   end;
-  result := str;
 end;
 
 
@@ -517,17 +541,6 @@ begin
   result := StringReplace(str, '&', '&amp;', [rfReplaceAll]);
   result := StringReplace(result, '<', '&lt;', [rfReplaceAll]);
   result := StringReplace(result, '>', '&gt;', [rfReplaceAll]);
-end;
-
-
-function BestTableName(Data: TDBQuery): String;
-begin
-  // Get table name from result if possible. Used by GridToXYZ() functions.
-  try
-    Result := Data.TableName;
-  except
-    Result := _('UnknownTable');
-  end;
 end;
 
 
@@ -683,12 +696,6 @@ begin
 end;
 
 
-function esc(Text: String; ProcessJokerChars: Boolean=false; DoQuote: Boolean=True): String;
-begin
-  Result := MainForm.ActiveConnection.EscapeString(Text, ProcessJokerChars, DoQuote);
-end;
-
-
 {***
   SynEdit removes all newlines and semi-randomly decides a
   new newline format to use for any text edited.
@@ -774,72 +781,20 @@ begin
 end;
 
 
-function ExtractLiteral(var SQL: String; Prefix: String): String;
-var
-  i, LitStart: Integer;
-  InLiteral: Boolean;
-  rx: TRegExpr;
-begin
-  // Return comment from SQL and remove it from the original string
-  // Single quotes are escaped by a second single quote
-  Result := '';
-  rx := TRegExpr.Create;
-  if Prefix.IsEmpty then
-    rx.Expression := '^\s*'''
-  else
-    rx.Expression := '^\s*'+QuoteRegExprMetaChars(Prefix)+'\s+''';
-  rx.ModifierI := True;
-  if rx.Exec(SQL) then begin
-    LitStart := rx.MatchLen[0]+1;
-    InLiteral := True;
-    for i:=LitStart to Length(SQL) do begin
-      if SQL[i] = '''' then
-        InLiteral := not InLiteral
-      else if not InLiteral then
-        break;
-    end;
-    Result := Copy(SQL, LitStart, i-LitStart-1);
-    Result := StringReplace(Result, '''''', '''', [rfReplaceAll]);
-    Delete(SQL, 1, i);
-  end;
-  rx.Free;
-end;
-
-
 {***
-  Get the path of a Windows(r)-shellfolder, specified by an integer or a constant
-
-  @param integer Number or constant
+  Get the path of a Windows(r)-shellfolder, specified by a KNOWNFOLDERID constant
+  @see https://docs.microsoft.com/en-us/windows/win32/shell/knownfolderid
+  @param TGUID constant
   @return string Path
 }
-function GetShellFolder(CSIDL: integer): string;
+function GetShellFolder(FolderId: TGUID): String;
 var
-  pidl                   : PItemIdList;
-  FolderPath             : string;
-  SystemFolder           : Integer;
-  Malloc                 : IMalloc;
+  Path: PWideChar;
 begin
-  Malloc := nil;
-  FolderPath := '';
-  SHGetMalloc(Malloc);
-  if Malloc = nil then
-  begin
-    Result := FolderPath;
-    Exit;
-  end;
-  try
-    SystemFolder := CSIDL;
-    if SUCCEEDED(SHGetSpecialFolderLocation(0, SystemFolder, pidl)) then
-    begin
-      SetLength(FolderPath, max_path);
-      if SHGetPathFromIDList(pidl, PChar(FolderPath)) then
-      begin
-        SetLength(FolderPath, length(PChar(FolderPath)));
-      end;
-    end;
-    Result := FolderPath;
-  finally
-    Malloc.Free(pidl);
+  if Succeeded(SHGetKnownFolderPath(FolderId, 0, 0, Path)) then begin
+    Result := Path;
+  end else begin
+    Result := EmptyStr;
   end;
 end;
 
@@ -851,13 +806,14 @@ end;
   @param string Filename
   @return string
 }
-function goodfilename( str: String ): String;
+function ValidFilename(Str: String): String;
 var
-  c : Char;
+  c: Char;
 begin
-  result := str;
-  for c in ['\', '/', ':', '*', '?', '"', '<', '>', '|'] do
-    result := StringReplace( result, c, '_', [rfReplaceAll] );
+  Result := Str;
+  for c in TPath.GetInvalidFileNameChars do begin
+    Result := StringReplace(Result, c, '_', [rfReplaceAll]);
+  end;
 end;
 
 
@@ -1047,12 +1003,13 @@ begin
 end;
 
 
-function RegExprGetMatch(Expression: String; var Input: String; ReturnMatchNum: Integer; DeleteFromSource: Boolean): String;
+function RegExprGetMatch(Expression: String; var Input: String; ReturnMatchNum: Integer; DeleteFromSource, CaseInsensitive: Boolean): String;
 var
   rx: TRegExpr;
 begin
   Result := '';
   rx := TRegExpr.Create;
+  rx.ModifierI := CaseInsensitive;
   rx.Expression := Expression;
   if rx.Exec(Input) then begin
     if rx.SubExprMatchCount >= ReturnMatchNum then begin
@@ -1070,7 +1027,7 @@ end;
 function RegExprGetMatch(Expression: String; Input: String; ReturnMatchNum: Integer): String;
 begin
   // Version without possibility to delete captured match from input
-  Result := RegExprGetMatch(Expression, Input, ReturnMatchNum, False);
+  Result := RegExprGetMatch(Expression, Input, ReturnMatchNum, False, False);
 end;
 
 
@@ -1117,8 +1074,8 @@ function FormatTimeNumber(Seconds: Double; DisplaySeconds: Boolean): String;
 var
   d, h, m, s, ts: Integer;
 begin
-  s := Trunc(Seconds);
-  ts := Trunc((Seconds - s) * 10); // ts = tenth of a second
+  s := TruncDef(Seconds, 0);
+  ts := TruncDef((Seconds - s) * 10, 0); // ts = tenth of a second
   d := s div (60*60*24);
   s := s mod (60*60*24);
   h := s div (60*60);
@@ -1159,11 +1116,11 @@ end;
 }
 procedure SaveUnicodeFile(Filename: String; Text: String);
 var
-  f: TFileStream;
+  Writer: TStreamWriter;
 begin
-  f := TFileStream.Create(Filename, fmCreate or fmOpenWrite);
-  StreamWrite(f, Text);
-  f.Free;
+  Writer := TStreamWriter.Create(Filename, False, UTF8NoBOMEncoding);
+  Writer.Write(Text);
+  Writer.Free;
 end;
 
 
@@ -1189,7 +1146,7 @@ end;
 
 
 {**
-  Detect stream's content encoding by examing first 100k bytes (MaxBufferSize). Result can be:
+  Detect stream's content encoding through SynEdit's GetEncoding. Result can be:
     UTF-16 BE with BOM
     UTF-16 LE with BOM
     UTF-8 with or without BOM
@@ -1200,150 +1157,28 @@ end;
 }
 function DetectEncoding(Stream: TStream): TEncoding;
 var
-  ByteOrderMark: Char;
-  BytesRead: Integer;
-  Utf8Test: array[0..2] of AnsiChar;
-  Buffer: array of Byte;
-  BufferSize, i, FoundUTF8Strings: Integer;
-const
-  UNICODE_BOM = Char($FEFF);
-  UNICODE_BOM_SWAPPED = Char($FFFE);
-  UTF8_BOM = AnsiString(#$EF#$BB#$BF);
-  MinimumCountOfUTF8Strings = 1;
-  MaxBufferSize = 1000000;
-
-  // 3 trailing bytes are the maximum in valid UTF-8 streams,
-  // so a count of 4 trailing bytes is enough to detect invalid UTF-8 streams
-  function CountOfTrailingBytes: Integer;
-  begin
-    Result := 0;
-    inc(i);
-    while (i < BufferSize) and (Result < 4) do begin
-      if Buffer[i] in [$80..$BF] then
-        inc(Result)
-      else
-        Break;
-      inc(i);
-    end;
-  end;
-
+  SynEnc: TSynEncoding;
+  WithBOM: Boolean;
 begin
-  // Byte Order Mark
-  ByteOrderMark := #0;
-  if (Stream.Size - Stream.Position) >= SizeOf(ByteOrderMark) then begin
-    BytesRead := Stream.Read(ByteOrderMark, SizeOf(ByteOrderMark));
-    if (ByteOrderMark <> UNICODE_BOM) and (ByteOrderMark <> UNICODE_BOM_SWAPPED) then begin
-      ByteOrderMark := #0;
-      Stream.Seek(-BytesRead, soFromCurrent);
-      if (Stream.Size - Stream.Position) >= Length(Utf8Test) * SizeOf(AnsiChar) then begin
-        BytesRead := Stream.Read(Utf8Test[0], Length(Utf8Test) * SizeOf(AnsiChar));
-        if Utf8Test <> UTF8_BOM then
-          Stream.Seek(-BytesRead, soFromCurrent);
-      end;
+  SynEnc := SynUnicode.GetEncoding(Stream, WithBOM);
+  case SynEnc of
+    seUTF8: begin
+      if WithBOM then
+        Result := TEncoding.UTF8
+      else
+        Result := UTF8NoBOMEncoding;
     end;
-  end;
-  // Test Byte Order Mark
-  if ByteOrderMark = UNICODE_BOM then
-    Result := TEncoding.Unicode
-  else if ByteOrderMark = UNICODE_BOM_SWAPPED then
-    Result := TEncoding.BigEndianUnicode
-  else if Utf8Test = UTF8_BOM then
-    Result := TEncoding.UTF8
-  else begin
-    { @note Taken from SynUnicode.pas }
-    { If no BOM was found, check for leading/trailing byte sequences,
-      which are uncommon in usual non UTF-8 encoded text.
-
-      NOTE: There is no 100% save way to detect UTF-8 streams. The bigger
-            MinimumCountOfUTF8Strings, the lower is the probability of
-            a false positive. On the other hand, a big MinimumCountOfUTF8Strings
-            makes it unlikely to detect files with only little usage of non
-            US-ASCII chars, like usual in European languages. }
-
-    // if no special characteristics are found it is not UTF-8
-    Result := TEncoding.Default;
-
-    // start analysis at actual Stream.Position
-    BufferSize := Min(MaxBufferSize, Stream.Size - Stream.Position);
-
-    if BufferSize > 0 then begin
-      SetLength(Buffer, BufferSize);
-      Stream.ReadBuffer(Buffer[0], BufferSize);
-      Stream.Seek(-BufferSize, soFromCurrent);
-
-      FoundUTF8Strings := 0;
-      i := 0;
-      while i < BufferSize do begin
-        if FoundUTF8Strings = MinimumCountOfUTF8Strings then begin
-          Result := TEncoding.UTF8;
-          Break;
-        end;
-        case Buffer[i] of
-          $00..$7F: // skip US-ASCII characters as they could belong to various charsets
-            ;
-          $C2..$DF:
-            if CountOfTrailingBytes = 1 then
-              inc(FoundUTF8Strings)
-            else
-              Break;
-          $E0:
-            begin
-              inc(i);
-              if (i < BufferSize) and (Buffer[i] in [$A0..$BF]) and (CountOfTrailingBytes = 1) then
-                inc(FoundUTF8Strings)
-              else
-                Break;
-            end;
-          $E1..$EC, $EE..$EF:
-            if CountOfTrailingBytes = 2 then
-              inc(FoundUTF8Strings)
-            else
-              Break;
-          $ED:
-            begin
-              inc(i);
-              if (i < BufferSize) and (Buffer[i] in [$80..$9F]) and (CountOfTrailingBytes = 1) then
-                inc(FoundUTF8Strings)
-              else
-                Break;
-            end;
-          $F0:
-            begin
-              inc(i);
-              if (i < BufferSize) and (Buffer[i] in [$90..$BF]) and (CountOfTrailingBytes = 2) then
-                inc(FoundUTF8Strings)
-              else
-                Break;
-            end;
-          $F1..$F3:
-            if CountOfTrailingBytes = 3 then
-              inc(FoundUTF8Strings)
-            else
-              Break;
-          $F4:
-            begin
-              inc(i);
-              if (i < BufferSize) and (Buffer[i] in [$80..$8F]) and (CountOfTrailingBytes = 2) then
-                inc(FoundUTF8Strings)
-              else
-                Break;
-            end;
-          $C0, $C1, $F5..$FF: // invalid UTF-8 bytes
-            Break;
-          $80..$BF: // trailing bytes are consumed when handling leading bytes,
-                     // any occurence of "orphaned" trailing bytes is invalid UTF-8
-            Break;
-        end;
-        inc(i);
-      end;
-    end;
+    seUTF16LE: Result := TEncoding.Unicode;
+    seUTF16BE: Result := TEncoding.BigEndianUnicode;
+    seAnsi: Result := TEncoding.ANSI;
+    else Result := UTF8NoBOMEncoding;
   end;
 end;
 
 
 function ReadTextfileChunk(Stream: TFileStream; Encoding: TEncoding; ChunkSize: Int64 = 0): String;
 const
-  BufferPadding = SIZE_MB;
+  BufferPadding = 1;
 var
   DataLeft, StartPosition: Int64;
   LBuffer: TBytes;
@@ -1499,27 +1334,6 @@ begin
 end;
 
 
-procedure FixDropDownButtons(Form: TForm);
-var
-  i: Integer;
-  Comp: TComponent;
-begin
-  // Work around broken dropdown (tool)button on Wine after translation:
-  // https://sourceforge.net/p/dxgettext/bugs/80/
-  for i:=0 to Form.ComponentCount-1 do begin
-    Comp := Form.Components[i];
-    if (Comp is TButton) and (TButton(Comp).Style = bsSplitButton) then begin
-      TButton(Comp).Style := bsPushButton;
-      TButton(Comp).Style := bsSplitButton;
-    end;
-    if (Comp is TToolButton) and (TToolButton(Comp).Style = tbsDropDown) then begin
-      TToolButton(Comp).Style := tbsButton;
-      TToolButton(Comp).Style := tbsDropDown;
-    end;
-  end;
-end;
-
-
 function GetTextHeight(Font: TFont): Integer;
 var
   DC: HDC;
@@ -1594,10 +1408,16 @@ var
 begin
   // Helper to find a node by its index
   Result := nil;
-  if Assigned(ParentNode) then
-    Node := VT.GetFirstChild(ParentNode)
-  else
-    Node := VT.GetFirst;
+  Node := nil;
+  try
+    if Assigned(ParentNode) then
+      Node := VT.GetFirstChild(ParentNode)
+    else
+      Node := VT.GetFirst;
+  except
+    // Sporadically, TBaseVirtualTree.GetFirst throws an exception when reading FRoot.FirstChild
+    // Tab restoring is sometimes crashing for that reason.
+  end;
   while Assigned(Node) do begin
     // Note: Grid.RootNodeCount is unfortunately Cardinal, not UInt64.
     if Node.Index = idx then begin
@@ -1620,14 +1440,15 @@ begin
 end;
 
 
-procedure SelectNode(VT: TVirtualStringTree; Node: PVirtualNode); overload;
+procedure SelectNode(VT: TVirtualStringTree; Node: PVirtualNode; ClearSelection: Boolean=True); overload;
 var
   OldFocus: PVirtualNode;
 begin
   if Node = VT.RootNode then
     Node := nil;
   OldFocus := VT.FocusedNode;
-  VT.ClearSelection;
+  if ClearSelection then
+    VT.ClearSelection;
   VT.FocusedNode := Node;
   VT.Selected[Node] := True;
   VT.ScrollIntoView(Node, False);
@@ -1749,6 +1570,29 @@ begin
 end;
 
 
+function DateTimeToStrDef(DateTime: TDateTime; Default: String) : String;
+begin
+  try
+    if DateTime = 0 then
+      Result := Default
+    else
+      Result := DateTimeToStr(DateTime);
+  except
+    on EInvalidOp do Result := Default;
+  end;
+end;
+
+
+function TruncDef(X: Real; Default: Int64): Int64;
+begin
+  try
+    Result := Trunc(X);
+  except
+    on EInvalidOp do Result := Default;
+  end;
+end;
+
+
 procedure ExplodeQuotedList(Text: String; var List: TStringList);
 var
   i: Integer;
@@ -1776,39 +1620,6 @@ begin
     end;
     if Opened and (not Closed) then
       Item := Item + Text[i];
-  end;
-end;
-
-
-procedure InheritFont(AFont: TFont);
-var
-  LogFont: TLogFont;
-  GUIFontName: String;
-begin
-  // Set custom font if set, or default system font.
-  // In high-dpi mode, the font *size* is increased automatically somewhere in the VCL,
-  // caused by a form's .Scaled property. So we don't increase it here again.
-  // To test this, you really need to log off/on Windows!
-  GUIFontName := AppSettings.ReadString(asGUIFontName);
-  if not GUIFontName.IsEmpty then begin
-    // Apply user specified font
-    AFont.Name := GUIFontName;
-    // Set size on top of automatic dpi-increased size
-    AFont.Size := AppSettings.ReadInt(asGUIFontSize);
-  end else begin
-    // Apply system font. See issue #3204.
-    // Code taken from http://www.gerixsoft.com/blog/delphi/system-font
-    if SystemParametersInfo(SPI_GETICONTITLELOGFONT, SizeOf(TLogFont), @LogFont, 0) then begin
-      AFont.Height := LogFont.lfHeight;
-      AFont.Orientation := LogFont.lfOrientation;
-      AFont.Charset := TFontCharset(LogFont.lfCharSet);
-      AFont.Name := PChar(@LogFont.lfFaceName);
-      case LogFont.lfPitchAndFamily and $F of
-        VARIABLE_PITCH: AFont.Pitch := fpVariable;
-        FIXED_PITCH: AFont.Pitch := fpFixed;
-        else AFont.Pitch := fpDefault;
-      end;
-    end;
   end;
 end;
 
@@ -1944,6 +1755,7 @@ begin
   // Do not set alClient via DFM! In conjunction with ExplicitXXX properties that
   // repeatedly breaks the GUI layout when you reload the project
   Align := alClient;
+  TranslateComponent(Self);
 end;
 
 destructor TDBObjectEditor.Destroy;
@@ -1966,6 +1778,7 @@ var
 begin
   Mainform.ShowStatusMsg(_('Initializing editor ...'));
   Mainform.LogSQL(Self.ClassName+'.Init, using object "'+Obj.Name+'"', lcDebug);
+  TExtForm.FixControls(Self);
   DBObject := TDBObject.Create(Obj.Connection);
   DBObject.Assign(Obj);
   Mainform.UpdateEditorTab;
@@ -2012,6 +1825,10 @@ begin
     Item.Action := MainForm.actToggleComment;
     popup.Items.Add(Item);
 
+    Item := TMenuItem.Create(popup);
+    Item.Action := MainForm.actReformatSQL;
+    popup.Items.Add(Item);
+
     SynMemo.PopupMenu := popup;
 
   end;
@@ -2036,25 +1853,6 @@ begin
       mrNo: Modified := False;
     end;
   end;
-end;
-
-
-function TDBObjectEditor.GetDefiners: TStringList;
-  function q(s: String): String;
-  begin
-    Result := DBObject.Connection.QuoteIdent(s);
-  end;
-begin
-  // For populating combobox items
-  if not Assigned(FDefiners) then begin
-    try
-      FDefiners := DBObject.Connection.GetCol('SELECT CONCAT('+q('User')+', '+esc('@')+', '+q('Host')+') FROM '+
-        q('mysql')+'.'+q('user')+' WHERE '+q('User')+'!='+esc('')+' ORDER BY '+q('User')+', '+q('Host'));
-    except on E:EDatabaseError do
-      FDefiners := TStringList.Create;
-    end;
-  end;
-  Result := FDefiners;
 end;
 
 
@@ -2130,7 +1928,7 @@ begin
     // FreeMemory(Dat.lpData);
 
     // Bring first instance to front
-    if not IsWindowVisible(Wnd) then
+    if IsIconic(Wnd) then
       ShowWindow(Wnd, SW_RESTORE);
     BringWindowToTop(Wnd);
     SetForegroundWindow(Wnd);
@@ -2312,6 +2110,13 @@ begin
 end;
 
 
+function StringListCompareByLength(List: TStringList; Index1, Index2: Integer): Integer;
+begin
+  // Sort TStringList items by their length
+  Result := CompareValue(List[Index2].Length, List[Index1].Length);
+end;
+
+
 {**
   Return compile date/time from passed .exe name
   Code taken and modified from Michael Puff
@@ -2456,19 +2261,27 @@ var
   Hotkeys: String;
   WebSearchUrl, WebSearchHost: String;
 
-  procedure AddButton(BtnCaption: String; BtnResult: TModalResult);
+  procedure AddButton(BtnCaption: String; BtnResult: TModalResult; ResourceId: Integer=0);
   var
     i: Integer;
     cap: String;
   begin
     Btn := TTaskDialogButtonItem(Dialog.Buttons.Add);
-    cap := _(BtnCaption);
-    for i:=1 to Length(cap) do begin
-      // Auto apply hotkey
-      if (Pos(LowerCase(cap[i]), Hotkeys) = 0) and Character.TCharacter.IsLetter(cap[i]) then begin
-        Hotkeys := Hotkeys + LowerCase(cap[i]);
-        Insert('&', cap, i);
-        break;
+    cap := '';
+    if ResourceId > 0 then begin
+      // Prefer string from user32.dll
+      // May be empty on Wine!
+      cap := GetLocaleString(ResourceId)
+    end;
+    if cap.IsEmpty then begin
+      cap := _(BtnCaption);
+      for i:=1 to Length(cap) do begin
+        // Auto apply hotkey
+        if (Pos(LowerCase(cap[i]), Hotkeys) = 0) and Character.TCharacter.IsLetter(cap[i]) then begin
+          Hotkeys := Hotkeys + LowerCase(cap[i]);
+          Insert('&', cap, i);
+          break;
+        end;
       end;
     end;
     Btn.Caption := cap;
@@ -2536,17 +2349,17 @@ begin
     // Add buttons
     for MsgButton in Buttons do begin
       case MsgButton of
-        mbYes:       AddButton('Yes', mrYes);
-        mbNo:        AddButton('No', mrNo);
-        mbOK:        AddButton('OK', mrOk);
-        mbCancel:    AddButton('Cancel', mrCancel);
-        mbAbort:     AddButton('Abort', mrAbort);
-        mbRetry:     AddButton('Retry', mrRetry);
-        mbIgnore:    AddButton('Ignore', mrIgnore);
+        mbYes:       AddButton('Yes', mrYes, 805);
+        mbNo:        AddButton('No', mrNo, 806);
+        mbOK:        AddButton('OK', mrOk, 800);
+        mbCancel:    AddButton('Cancel', mrCancel, 801);
+        mbAbort:     AddButton('Abort', mrAbort, 802);
+        mbRetry:     AddButton('Retry', mrRetry, 803);
+        mbIgnore:    AddButton('Ignore', mrIgnore, 804);
         mbAll:       AddButton('All', mrAll);
         mbNoToAll:   AddButton('No to all', mrNoToAll);
         mbYesToAll:  AddButton('Yes to all', mrYesToAll);
-        mbClose:     AddButton('Close', mrClose);
+        mbClose:     AddButton('Close', mrClose, 807);
       end;
     end;
 
@@ -2604,6 +2417,21 @@ begin
 end;
 
 
+function GetLocaleString(const ResourceId: Integer): WideString;
+var
+  Buffer: WideString;
+  BufferLen: Integer;
+begin
+  Result := '';
+  if LibHandleUser32 <> 0 then begin
+    SetLength(Buffer, 255);
+    BufferLen := LoadStringW(LibHandleUser32, ResourceId, PWideChar(Buffer), Length(Buffer));
+    if BufferLen <> 0 then
+      Result := Copy(Buffer, 1, BufferLen);
+  end;
+end;
+
+
 function GetHTMLCharsetByEncoding(Encoding: TEncoding): String;
 begin
   Result := '';
@@ -2625,9 +2453,9 @@ end;
 procedure ParseCommandLine(CommandLine: String; var ConnectionParams: TConnectionParameters; var FileNames: TStringList);
 var
   rx: TRegExpr;
-  ExeName, SessName, Host, User, Pass, Socket,
+  ExeName, SessName, Host, Lib, Port, User, Pass, Socket, AllDatabases,
   SSLPrivateKey, SSLCACertificate, SSLCertificate, SSLCipher: String;
-  Port, NetType, WindowsAuth, WantSSL: Integer;
+  NetType, WindowsAuth, WantSSL, CleartextPluginEnabled: Integer;
   AbsentFiles: TStringList;
 
   function GetParamValue(ShortName, LongName: String): String;
@@ -2690,19 +2518,22 @@ begin
   // Enables the user to log into a session with a different, non-stored user: -dSession -uSomeOther
   NetType := StrToIntDef(GetParamValue('n', 'nettype'), 0);
   Host := GetParamValue('h', 'host');
+  Lib := GetParamValue('l', 'library');
   User := GetParamValue('u', 'user');
   Pass := GetParamValue('p', 'password');
+  CleartextPluginEnabled := StrToIntDef(GetParamValue('cte', 'cleartextenabled'), -1);
   Socket := GetParamValue('S', 'socket');
-  Port := StrToIntDef(GetParamValue('P', 'port'), 0);
+  Port := GetParamValue('P', 'port');
+  AllDatabases := GetParamValue('db', 'databases');
   WindowsAuth := StrToIntDef(GetParamValue('W', 'winauth'), -1);
   WantSSL := StrToIntDef(GetParamValue('ssl', 'ssl'), -1);
-  SSLPrivateKey := GetParamValue('sslprivatekey', 'sslprivatekey');
-  SSLCACertificate := GetParamValue('sslcacertificate', 'sslcacertificate');
-  SSLCertificate := GetParamValue('sslcertificate', 'sslcertificate');
-  SSLCipher := GetParamValue('sslcipher', 'sslcipher');
+  SSLPrivateKey := GetParamValue('sslpk', 'sslprivatekey');
+  SSLCACertificate := GetParamValue('sslca', 'sslcacertificate');
+  SSLCertificate := GetParamValue('sslcert', 'sslcertificate');
+  SSLCipher := GetParamValue('sslcip', 'sslcipher');
   // Leave out support for startup script, seems reasonable for command line connecting
 
-  if (Host <> '') or (User <> '') or (Pass <> '') or (Port <> 0) or (Socket <> '') then begin
+  if (Host <> '') or (User <> '') or (Pass <> '') or (Port <> '') or (Socket <> '') or (AllDatabases <> '') then begin
     if not Assigned(ConnectionParams) then begin
       ConnectionParams := TConnectionParameters.Create;
       ConnectionParams.SessionPath := SessName;
@@ -2714,13 +2545,18 @@ begin
       ConnectionParams.NetType := ntMySQL_TCPIP;
     end;
     if Host <> '' then ConnectionParams.Hostname := Host;
+    if Lib <> '' then ConnectionParams.LibraryOrProvider := Lib;
+    if ConnectionParams.LibraryOrProvider.IsEmpty then ConnectionParams.LibraryOrProvider := ConnectionParams.DefaultLibrary;
     if User <> '' then ConnectionParams.Username := User;
     if Pass <> '' then ConnectionParams.Password := Pass;
-    if Port <> 0 then ConnectionParams.Port := Port;
+    if CleartextPluginEnabled in [0,1] then
+      ConnectionParams.CleartextPluginEnabled := Boolean(CleartextPluginEnabled);
+    if Port <> '' then ConnectionParams.Port := StrToIntDef(Port, 0);
     if Socket <> '' then begin
       ConnectionParams.Hostname := Socket;
       ConnectionParams.NetType := ntMySQL_NamedPipe;
     end;
+    if AllDatabases <> '' then ConnectionParams.AllDatabasesStr := AllDatabases;
     if WantSSL in [0,1] then
       ConnectionParams.WantSSL := Boolean(WantSSL);
     if SSLPrivateKey <> '' then
@@ -2761,20 +2597,20 @@ end;
 
 function GetOutputFilename(FilenameWithPlaceholders: String; DBObj: TDBObject): String;
 var
-  Arguments: TStringList;
+  Arguments: TExtStringList;
   Year, Month, Day, Hour, Min, Sec, MSec: Word;
   i: Integer;
 begin
   // Rich format output filename, replace certain markers. See issue #2622
-  Arguments := TStringList.Create;
+  Arguments := TExtStringList.Create;
 
   if Assigned(DBObj) then begin
-    Arguments.Values['session'] := goodfilename(DBObj.Connection.Parameters.SessionName);
-    Arguments.Values['host'] := goodfilename(DBObj.Connection.Parameters.Hostname);
-    Arguments.Values['u'] := goodfilename(DBObj.Connection.Parameters.Username);
-    Arguments.Values['db'] := goodfilename(DBObj.Database);
+    Arguments.Values['session'] := ValidFilename(DBObj.Connection.Parameters.SessionName);
+    Arguments.Values['host'] := ValidFilename(DBObj.Connection.Parameters.Hostname);
+    Arguments.Values['u'] := ValidFilename(DBObj.Connection.Parameters.Username);
+    Arguments.Values['db'] := ValidFilename(DBObj.Database);
   end;
-  Arguments.Values['date'] := goodfilename(DateTimeToStr(Now));
+  Arguments.Values['date'] := ValidFilename(DateTimeToStr(Now));
   DecodeDateTime(Now, Year, Month, Day, Hour, Min, Sec, MSec);
   Arguments.Values['d'] := Format('%.2d', [Day]);
   Arguments.Values['m'] := Format('%.2d', [Month]);
@@ -2888,7 +2724,7 @@ begin
     Place := (Sender as TControl).Name
   else
     Place := 'unhandled-'+Sender.ClassName;
-  if IsNotEmpty(Anchor) then
+  if not Anchor.IsEmpty then
     Anchor := '#'+Anchor;
   ShellExec(APPDOMAIN+'help.php?place='+EncodeURLParam(Place)+Anchor);
 end;
@@ -2995,12 +2831,6 @@ begin
 end;
 
 
-function DpiScaleFactor(Form: TForm): Double;
-begin
-  Result := Form.Monitor.PixelsPerInch / Form.PixelsPerInch;
-end;
-
-
 function GetThemeColor(Color: TColor): TColor;
 begin
   // Not required with vcl-style-utils:
@@ -3021,7 +2851,7 @@ begin
 end;
 
 
-function ProcessExists(pid: Cardinal): Boolean;
+function ProcessExists(pid: Cardinal; ExeNamePattern: String): Boolean;
 var
   Proc: TProcessEntry32;
   SnapShot: THandle;
@@ -3033,12 +2863,56 @@ begin
   Result := False;
   ContinueLoop := Process32First(SnapShot, Proc);
   while ContinueLoop do begin
-    Result := Proc.th32ProcessID = pid;
+    Result := (Proc.th32ProcessID = pid) and ContainsText(Proc.szExeFile, ExeNamePattern);
     if Result then
       Break;
     ContinueLoop := Process32Next(SnapShot, Proc);
   end;
   CloseHandle(Snapshot);
+end;
+
+
+procedure ToggleCheckBoxWithoutClick(chk: TCheckBox; State: Boolean);
+var
+  ClickEvent: TNotifyEvent;
+begin
+  ClickEvent := chk.OnClick;
+  chk.OnClick := nil;
+  chk.Checked := State;
+  chk.OnClick := ClickEvent;
+end;
+
+
+function SynCompletionProposalPrettyText(ImageIndex: Integer; LeftText, CenterText, RightText: String;
+  LeftColor: TColor=-1; CenterColor: TColor=-1; RightColor: TColor=-1): String;
+const
+  LineFormat = '\image{%d}\hspace{5}\color{%s}%s\column{}\color{%s}%s\hspace{5}\color{%s}%s';
+begin
+  // Return formatted item string for a TSynCompletionProposal
+  if LeftColor = -1 then LeftColor := clGrayText;
+  if CenterColor = -1 then CenterColor := clWindowText;
+  if RightColor = -1 then RightColor := clGrayText;
+  Result := Format(LineFormat, [ImageIndex, ColorToString(LeftColor), LeftText, ColorToString(CenterColor), CenterText, ColorToString(RightColor), RightText]);
+end;
+
+
+function PopupComponent(Sender: TObject): TComponent;
+var
+  Menu: TObject;
+begin
+  // Return owner component of clicked menu item, probably combined with a TAction
+  Result := nil;
+  Menu := nil;
+  if Sender is TAction then
+    Sender := (Sender as TAction).ActionComponent;
+
+  if Sender is TMenuItem then
+    Menu := (Sender as TMenuItem).GetParentMenu
+  else if Sender is TPopupMenu then
+    Menu := Sender;
+
+  if Menu is TPopupMenu then
+    Result := (Menu as TPopupMenu).PopupComponent;
 end;
 
 
@@ -3107,15 +2981,15 @@ begin
       end;
       FQueriesInPacket := i - FBatchPosition;
     end;
-    Synchronize(BeforeQuery);
+    Synchronize(procedure begin MainForm.BeforeQueryExecution(Self); end);
     try
       FConnection.LockedByThread := Self;
       DoStoreResult := ResultCount < AppSettings.ReadInt(asMaxQueryResults);
       if (not DoStoreResult) and (not LogMaxResultsDone) then begin
         // Inform user about preference setting for limiting result tabs
-        LogFromOutside(
-          f_('Reached maximum number of result tabs (%d). To display more results, increase setting in Preferences > SQL', [AppSettings.ReadInt(asMaxQueryResults)]),
-          lcInfo);
+        FConnection.Log(lcInfo,
+          f_('Reached maximum number of result tabs (%d). To display more results, increase setting in Preferences > SQL', [AppSettings.ReadInt(asMaxQueryResults)])
+          );
         LogMaxResultsDone := True;
       end;
       FConnection.Query(SQL, DoStoreResult, lcUserFiredSQL);
@@ -3127,7 +3001,7 @@ begin
       Inc(FRowsFound, FConnection.RowsFound);
       Inc(FWarningCount, FConnection.WarningCount);
     except
-      on E:EDatabaseError do begin
+      on E:EDbError do begin
         if FStopOnErrors or (i = FBatch.Count - 1) then begin
           FErrorMessage := E.Message;
           ErrorAborted := True;
@@ -3135,46 +3009,20 @@ begin
       end;
     end;
     FConnection.LockedByThread := nil;
-    Synchronize(AfterQuery);
+    Synchronize(procedure begin MainForm.AfterQueryExecution(Self); end);
     // Check if FAborted is set by the main thread, to avoid proceeding the loop in case
     // FStopOnErrors is set to false
     if FAborted or ErrorAborted then
       break;
   end;
 
-  Synchronize(BatchFinished);
+  Synchronize(procedure begin MainForm.FinishedQueryExecution(Self); end);
 end;
 
 
-procedure TQueryThread.BeforeQuery;
+procedure TQueryThread.LogFromThread(Msg: String; Category: TDBLogCategory);
 begin
-  MainForm.BeforeQueryExecution(Self);
-end;
-
-
-procedure TQueryThread.LogFromOutside(Msg: String; Category: TDBLogCategory);
-begin
-  FLogMsg := Msg;
-  FLogCategory := Category;
-  Synchronize(Log);
-end;
-
-
-procedure TQueryThread.Log;
-begin
-  FConnection.OnLog(FLogMsg, FLogCategory, FConnection);
-end;
-
-
-procedure TQueryThread.AfterQuery;
-begin
-  MainForm.AfterQueryExecution(Self);
-end;
-
-
-procedure TQueryThread.BatchFinished;
-begin
-  MainForm.FinishedQueryExecution(Self);
+  Queue(procedure begin FConnection.Log(Category, Msg); end);
 end;
 
 
@@ -3196,6 +3044,58 @@ end;
 function TSQLSentence.GetSQL: String;
 begin
   Result := Copy(FOwner.SQL, LeftOffset, RightOffset-LeftOffset);
+end;
+
+
+function TSQLSentence.GetSQLWithoutComments: String;
+var
+  InLineComment, InMultiLineComment: Boolean;
+  AddCur: Boolean;
+  i: Integer;
+  FullSQL: String;
+  Cur, Prev1, Prev2: Char;
+begin
+  // Strip comments out of SQL sentence
+  // TODO: leave quoted string literals and identifiers untouched
+  FullSQL := GetSQL;
+  Result := '';
+  InLineComment := False;
+  InMultiLineComment := False;
+  Prev1 := #0;
+  Prev2 := #0;
+  for i:=1 to Length(FullSQL) do begin
+    Cur := FullSQL[i];
+    AddCur := True;
+    if i > 1 then Prev1 := FullSQL[i-1];
+    if i > 2 then Prev2 := FullSQL[i-2];
+
+    if (Cur = '*') and (Prev1 = '/') then begin
+      InMultiLineComment := True;
+      Delete(Result, Length(Result), 1); // Delete comment chars
+    end
+    else if InMultiLineComment and (Cur = '/') and (Prev1 = '*') then begin
+      InMultiLineComment := False;
+      Delete(Result, Length(Result), 1);
+      AddCur := False;
+    end;
+
+    if not InMultiLineComment then begin
+      if InLineComment and ((Cur = #13) or (Cur = #10)) then begin
+        InLineComment := False; // Reset
+      end
+      else if Cur = '#' then begin
+        InLineComment := True;
+      end
+      else if (Cur = ' ') and (Prev1 = '-') and (Prev2 = '-') then begin
+        InLineComment := True;
+        Delete(Result, Length(Result)-1, 2); // Delete comment chars
+      end;
+    end;
+
+    if AddCur and (not InLineComment) and (not InMultiLineComment) then begin
+      Result := Result + Cur;
+    end;
+  end;
 end;
 
 
@@ -3321,13 +3221,14 @@ procedure THttpDownload.SendRequest(Filename: String);
 var
   NetHandle: HINTERNET;
   UrlHandle: HINTERNET;
-  Buffer: array[1..4096] of Byte;
+  Buffer: array[1..4096] of AnsiChar;
   Head: array[1..1024] of Char;
   BytesInChunk, HeadSize, Reserved, TimeOutSeconds: Cardinal;
   LocalFile: File;
   DoStore: Boolean;
   UserAgent, OS: String;
   HttpStatus: Integer;
+  ContentChunk: UTF8String;
 begin
   DoStore := False;
   if MainForm.IsWine then
@@ -3342,10 +3243,18 @@ begin
   InternetSetOption(NetHandle, INTERNET_OPTION_CONNECT_TIMEOUT, @TimeOutSeconds, SizeOf(TimeOutSeconds));
 
   UrlHandle := nil;
+  FLastContent := '';
   try
     UrlHandle := InternetOpenURL(NetHandle, PChar(FURL), nil, 0, INTERNET_FLAG_RELOAD, 0);
-    if not Assigned(UrlHandle) then
-      raise Exception.CreateFmt(_('Could not open URL: %s'), [FURL]);
+    if (not Assigned(UrlHandle)) and FURL.StartsWith('https:', true) then begin
+      // Try again without SSL. See issue #65 and #1209
+      MainForm.LogSQL(f_('Could not open %s (%s) - trying again without SSL...', [FURL, SysErrorMessage(Windows.GetLastError)]), lcError);
+      FURL := ReplaceRegExpr('^https:', FURL, 'http:');
+      UrlHandle := InternetOpenURL(NetHandle, PChar(FURL), nil, 0, INTERNET_FLAG_RELOAD, 0);
+    end;
+    if not Assigned(UrlHandle) then begin
+      raise Exception.CreateFmt(_('Could not open %s (%s)'), [FURL, SysErrorMessage(Windows.GetLastError)]);
+    end;
 
     // Detect content length
     HeadSize := SizeOf(Head);
@@ -3374,8 +3283,13 @@ begin
     // Stream contents
     while true do begin
       InternetReadFile(UrlHandle, @Buffer, SizeOf(Buffer), BytesInChunk);
-      if DoStore then
-        BlockWrite(LocalFile, Buffer, BytesInChunk);
+      // Either store as file or in memory variable
+      if DoStore then begin
+        BlockWrite(LocalFile, Buffer, BytesInChunk)
+      end else begin
+        SetString(ContentChunk, PAnsiChar(@Buffer[1]), BytesInChunk);
+        FLastContent := FLastContent + String(ContentChunk);
+      end;
       Inc(FBytesRead, BytesInChunk);
       if Assigned(FOnProgress) then
         FOnProgress(Self);
@@ -3395,6 +3309,26 @@ end;
 
 
 
+{ TExtStringList }
+// taken from https://stackoverflow.com/questions/33893377/can-i-prevent-tstringlist-removing-key-value-pair-when-value-set-to-empty
+
+function TExtStringList.GetValue(const Name: string): string;
+begin
+  Result := Self.GetValue(Name);
+end;
+
+
+procedure TExtStringList.SetValue(const Name, Value: string);
+var
+  I: Integer;
+begin
+  I := IndexOfName(Name);
+  if I < 0 then I := Add('');
+  Put(I, Name + NameValueSeparator + Value);
+end;
+
+
+
 { TAppSettings }
 
 constructor TAppSettings.Create;
@@ -3410,7 +3344,7 @@ begin
   FReads := 0;
   FWrites := 0;
 
-  PortableLockFile := ExtractFilePath(ParamStr(0)) + SPortableLockFile;
+  PortableLockFile := ExtractFilePath(ParamStr(0)) + FPortableLockFileBase;
 
   // Use filename from command line. If not given, use file in directory of executable.
   rx := TRegExpr.Create;
@@ -3432,6 +3366,7 @@ begin
 
   // Switch to portable mode if lock file exists. File content is ignored.
   FPortableMode := FileExists(PortableLockFile);
+  FPortableModeReadOnly := False;
 
   if FPortableMode then begin
     // Create file if only the lock file exists
@@ -3444,7 +3379,7 @@ begin
       ImportSettings(FSettingsFile);
     except
       on E:Exception do
-        ErrorDialog(E.Message);
+        MessageDlg(E.Message, mtError, [mbOK], 0, mbOK);
     end;
   end else begin
     FBasePath := '\Software\' + APPNAME + '\';
@@ -3463,6 +3398,10 @@ begin
   InitSetting(asRestoreLastUsedDB,                'RestoreLastUsedDB',                     0, True);
   InitSetting(asLastUsedDB,                       'lastUsedDB',                            0, False, '', True);
   InitSetting(asTreeBackground,                   'TreeBackground',                        clNone, False, '', True);
+  InitSetting(asIgnoreDatabasePattern,            'IgnoreDatabasePattern',                 0, False, '', True);
+  InitSetting(asLogFileDdl,                       'LogFileDdl',                            0, False, '', True);
+  InitSetting(asLogFileDml,                       'LogFileDml',                            0, False, '', True);
+  InitSetting(asLogFilePath,                      'LogFilePath',                           0, False, DirnameUserAppData + 'Logs\%session\%db\%y%m%d.sql', True);
   if Screen.Fonts.IndexOf('Consolas') > -1 then
     InitSetting(asFontName,                       'FontName',                              0, False, 'Consolas')
   else
@@ -3505,6 +3444,7 @@ begin
   InitSetting(asQueryhelperswidth,                'queryhelperswidth',                     200);
   InitSetting(asStopOnErrorsInBatchMode,          'StopOnErrorsInBatchMode',               0, True);
   InitSetting(asWrapLongLines,                    'WrapLongLines',                         0, False);
+  InitSetting(asCodeFolding,                      'CodeFolding',                           0, True);
   InitSetting(asDisplayBLOBsAsText,               'DisplayBLOBsAsText',                    0, True);
   InitSetting(asSingleQueries,                    'SingleQueries',                         0, True);
   InitSetting(asMemoEditorWidth,                  'MemoEditorWidth',                       100);
@@ -3519,12 +3459,15 @@ begin
   InitSetting(asSQLHelpPnlLeftWidth,              'SQLHelp_PnlLeftWidth',                  150);
   InitSetting(asSQLHelpPnlRightTopHeight,         'SQLHelp_PnlRightTopHeight',             150);
   InitSetting(asHost,                             'Host',                                  0, False, '127.0.0.1', True);
-  InitSetting(asUser,                             'User',                                  0, False, 'root', True);
+  InitSetting(asUser,                             'User',                                  0, False, '', True);
   InitSetting(asPassword,                         'Password',                              0, False, '', True);
+  InitSetting(asCleartextPluginEnabled,           'CleartextPluginEnabled',                0, False, '', True);
   InitSetting(asWindowsAuth,                      'WindowsAuth',                           0, False, '', True);
   InitSetting(asLoginPrompt,                      'LoginPrompt',                           0, False, '', True);
-  InitSetting(asPort,                             'Port',                                  0, False, '3306', True);
-  InitSetting(asPlinkExecutable,                  'PlinkExecutable',                       0, False, '');
+  InitSetting(asPort,                             'Port',                                  0, False, '', True);
+  InitSetting(asLibrary,                          'Library',                               0, False, '', True); // Gets its default in TConnectionParameters.Create
+  InitSetting(asAllProviders,                     'AllProviders',                          0, False);
+  InitSetting(asPlinkExecutable,                  'PlinkExecutable',                       0, False, 'plink.exe');
   InitSetting(asSSHtunnelHost,                    'SSHtunnelHost',                         0, False, '', True);
   InitSetting(asSSHtunnelHostPort,                'SSHtunnelHostPort',                     22, False, '', True);
   InitSetting(asSSHtunnelPort,                    'SSHtunnelPort',                         0, False, '', True);
@@ -3559,8 +3502,9 @@ begin
   InitSetting(asExportSQLOutput,                  'ExportSQL_Output',                      0);
   InitSetting(asExportSQLAddComments,             'ExportSQLAddComments',                  0, True);
   InitSetting(asExportSQLRemoveAutoIncrement,     'ExportSQLRemoveAutoIncrement',          0, False);
+  InitSetting(asExportSQLRemoveDefiner,           'ExportSQLRemoveDefiner',                0, True);
   InitSetting(asGridExportWindowWidth,            'GridExportWindowWidth',                 400);
-  InitSetting(asGridExportWindowHeight,           'GridExportWindowHeight',                460);
+  InitSetting(asGridExportWindowHeight,           'GridExportWindowHeight',                480);
   InitSetting(asGridExportOutputCopy,             'GridExportOutputCopy',                  0, True);
   InitSetting(asGridExportOutputFile,             'GridExportOutputFile',                  0, False);
   InitSetting(asGridExportFilename,               'GridExportFilename',                    0, False, '');
@@ -3571,14 +3515,15 @@ begin
   InitSetting(asGridExportColumnNames,            'GridExportColumnNames',                 0, True);
   InitSetting(asGridExportIncludeAutoInc,         'GridExportAutoInc',                     0, True);
   InitSetting(asGridExportIncludeQuery,           'GridExportIncludeQuery',                0, False);
+  InitSetting(asGridExportRemoveLinebreaks,       'GridExportRemoveLinebreaks',            0, False);
   InitSetting(asGridExportSeparator,              'GridExportSeparator',                   0, False, ';');
   InitSetting(asGridExportEncloser,               'GridExportEncloser',                    0, False, '');
   InitSetting(asGridExportTerminator,             'GridExportTerminator',                  0, False, '\r\n');
   InitSetting(asGridExportNull,                   'GridExportNull',                        0, False, '\N');
   // Copy to clipboard defaults:
-  InitSetting(asGridExportClpFormat,              'GridExportClpFormat',                   0);
   InitSetting(asGridExportClpColumnNames,         'GridExportClpColumnNames',              0, False);
   InitSetting(asGridExportClpIncludeAutoInc,      'GridExportClpAutoInc',                  0, True);
+  InitSetting(asGridExportClpRemoveLinebreaks,    'GridExportClpRemoveLinebreaks',         0, False);
   InitSetting(asGridExportClpSeparator,           'GridExportClpSeparator',                0, False, ';');
   InitSetting(asGridExportClpEncloser,            'GridExportClpEncloser',                 0, False, '');
   InitSetting(asGridExportClpTerminator,          'GridExportClpTerminator',               0, False, '\r\n');
@@ -3600,11 +3545,15 @@ begin
   InitSetting(asUpdatecheck,                      'Updatecheck',                           0, False);
   InitSetting(asUpdatecheckBuilds,                'UpdatecheckBuilds',                     0, False);
   InitSetting(asUpdatecheckInterval,              'UpdatecheckInterval',                   3);
-  InitSetting(asUpdatecheckLastrun,               'UpdatecheckLastrun',                    0, False, '2000-01-01');
+  InitSetting(asUpdatecheckLastrun,               'UpdatecheckLastrun',                    0, False, DateToStr(DateTimeNever));
+  InitSetting(asUpdateCheckWindowWidth,           'UpdateCheckWindowWidth',                400);
+  InitSetting(asUpdateCheckWindowHeight,          'UpdateCheckWindowHeight',               460);
   InitSetting(asTableToolsWindowWidth,            'TableTools_WindowWidth',                800);
   InitSetting(asTableToolsWindowHeight,           'TableTools_WindowHeight',               420);
   InitSetting(asTableToolsTreeWidth,              'TableTools_TreeWidth',                  300);
+  InitSetting(asTableToolsFindTextTab,            'TableToolsFindTextTab',                 0);
   InitSetting(asTableToolsFindText,               'TableTools_FindText',                   0, False, '');
+  InitSetting(asTableToolsFindSQL,                'TableToolsFindSQL',                     0, False, '');
   InitSetting(asTableToolsDatatype,               'TableTools_Datatype',                   0);
   InitSetting(asTableToolsFindCaseSensitive,      'TableTools_FindCaseSensitive',          0, False);
   InitSetting(asTableToolsFindMatchType,          'TableToolsFindMatchType',               0);
@@ -3619,7 +3568,7 @@ begin
   InitSetting(asSelectDBOWindowHeight,            'SelectDBO_WindowHeight',                350);
   InitSetting(asSessionManagerListWidth,          'SessionManager_ListWidth',              220);
   InitSetting(asSessionManagerWindowWidth,        'SessionManager_WindowWidth',            700);
-  InitSetting(asSessionManagerWindowHeight,       'SessionManager_WindowHeight',           420);
+  InitSetting(asSessionManagerWindowHeight,       'SessionManager_WindowHeight',           490);
   InitSetting(asSessionManagerWindowLeft,         'SessionManager_WindowLeft',             50);
   InitSetting(asSessionManagerWindowTop,          'SessionManager_WindowTop',              50);
   InitSetting(asCopyTableWindowHeight,            'CopyTable_WindowHeight',                340);
@@ -3631,12 +3580,12 @@ begin
   InitSetting(asCopyTableRecentFilter,            'CopyTable_RecentFilter_%s',             0, False, '');
   InitSetting(asServerVersion,                    'ServerVersion',                         0, False, '', True);
   InitSetting(asServerVersionFull,                'ServerVersionFull',                     0, False, '', True);
-  InitSetting(asLastConnect,                      'LastConnect',                           0, False, '2000-01-01', True);
+  InitSetting(asLastConnect,                      'LastConnect',                           0, False, DateToStr(DateTimeNever), True);
   InitSetting(asConnectCount,                     'ConnectCount',                          0, False, '', True);
   InitSetting(asRefusedCount,                     'RefusedCount',                          0, False, '', True);
   InitSetting(asSessionCreated,                   'SessionCreated',                        0, False, '', True);
   InitSetting(asDoUsageStatistics,                'DoUsageStatistics',                     0, False);
-  InitSetting(asLastUsageStatisticCall,           'LastUsageStatisticCall',                0, False, '2000-01-01');
+  InitSetting(asLastUsageStatisticCall,           'LastUsageStatisticCall',                0, False, DateToStr(DateTimeNever));
   InitSetting(asWheelZoom,                        'WheelZoom',                             0, True);
   InitSetting(asDisplayBars,                      'DisplayBars',                           0, true);
   InitSetting(asMySQLBinaries,                    'MySQL_Binaries',                        0, False, '');
@@ -3648,10 +3597,13 @@ begin
   DefaultSnippetsDirectory := DefaultSnippetsDirectory + 'Snippets\';
   InitSetting(asCustomSnippetsDirectory,          'CustomSnippetsDirectory',               0, False, DefaultSnippetsDirectory);
   InitSetting(asPromptSaveFileOnTabClose,         'PromptSaveFileOnTabClose',              0, True);
-  InitSetting(asRestoreTabs,                      'RestoreTabs',                           0, True);
+  // Restore tabs feature crashes often on old XP systems, see https://www.heidisql.com/forum.php?t=34044
+  InitSetting(asRestoreTabs,                      'RestoreTabs',                           0, Win32MajorVersion >= 6);
   InitSetting(asWarnUnsafeUpdates,                'WarnUnsafeUpdates',                     0, True);
   InitSetting(asQueryWarningsMessage,             'QueryWarningsMessage',                  0, True);
+  InitSetting(asQueryGridLongSortRowNum,          'QueryGridLongSortRowNum',               10000);
   InitSetting(asCompletionProposal,               'CompletionProposal',                    0, True);
+  InitSetting(asCompletionProposalSearchOnMid,    'CompletionProposalSearchOnMid',         0, False);
   InitSetting(asCompletionProposalWidth,          'CompletionProposalWidth',               350);
   InitSetting(asCompletionProposalNbLinesInWindow,'CompletionProposalNbLinesInWindow',     12);
   InitSetting(asAutoUppercase,                    'AutoUppercase',                         0, True);
@@ -3719,6 +3671,11 @@ begin
   InitSetting(asPreferencesWindowWidth,           'PreferencesWindowWidth',                740);
   InitSetting(asPreferencesWindowHeight,          'PreferencesWindowHeight',               500);
   InitSetting(asFileDialogEncoding,               'FileDialogEncoding_%s',                 0);
+  InitSetting(asThemePreviewWidth,                'ThemePreviewWidth',                     300);
+  InitSetting(asThemePreviewHeight,               'ThemePreviewHeight',                    200);
+  InitSetting(asThemePreviewTop,                  'ThemePreviewTop',                       300);
+  InitSetting(asThemePreviewLeft,                 'ThemePreviewLeft',                      300);
+  InitSetting(asCreateDbCollation,                'CreateDbCollation',                     0, False, '');
 
   // Initialization values
   FRestoreTabsInitValue := ReadBool(asRestoreTabs);
@@ -3737,7 +3694,11 @@ var
 begin
   // Export settings into textfile in portable mode.
   if FPortableMode then try
-    ExportSettings(FSettingsFile);
+    try
+      ExportSettings;
+    except
+      // do nothing, even ShowMessage or ErrorDialog would trigger timer events followed by crashes;
+    end;
     FRegistry.CloseKey;
     FRegistry.DeleteKey(FBasePath);
 
@@ -3811,8 +3772,15 @@ begin
   Folder := FBasePath;
   if FSessionPath <> '' then
     Folder := Folder + REGKEY_SESSIONS + '\' + FSessionPath;
-  if '\'+FRegistry.CurrentPath <> Folder then
+  if '\'+FRegistry.CurrentPath <> Folder then try
     FRegistry.OpenKey(Folder, True);
+  except
+    on E:Exception do begin
+      // Recreate exception with a more useful message
+      E.Message := E.Message + CRLF + CRLF + 'While trying to open registry key "'+Folder+'"';
+      raise;
+    end;
+  end;
 end;
 
 
@@ -3861,7 +3829,7 @@ var
   KeyPath: String;
 begin
   PrepareRegistry;
-  if IsEmpty(FSessionPath) then
+  if FSessionPath.IsEmpty then
     raise Exception.CreateFmt(_('No path set, won''t delete root key %s'), [FRegistry.CurrentPath])
   else begin
     KeyPath := REGKEY_SESSIONS + '\' + FSessionPath;
@@ -3876,7 +3844,7 @@ var
   KeyPath: String;
 begin
   PrepareRegistry;
-  if IsEmpty(FSessionPath) then
+  if FSessionPath.IsEmpty then
     raise Exception.CreateFmt(_('No path set, won''t move root key %s'), [FRegistry.CurrentPath])
   else begin
     KeyPath := REGKEY_SESSIONS + '\' + FSessionPath;
@@ -3949,9 +3917,9 @@ begin
   ValueName := FSettings[Index].Name;
   if FormatName <> '' then
     ValueName := Format(ValueName, [FormatName]);
-  if FSettings[Index].Session and IsEmpty(FSessionPath) then
+  if FSettings[Index].Session and FSessionPath.IsEmpty then
     raise Exception.Create(_('Attempt to read session setting without session path'));
-  if (not FSettings[Index].Session) and IsNotEmpty(FSessionPath) then
+  if (not FSettings[Index].Session) and (not FSessionPath.IsEmpty) then
     SessionPath := ''
   else
     PrepareRegistry;
@@ -4024,9 +3992,9 @@ begin
   ValueName := FSettings[Index].Name;
   if FormatName <> '' then
     ValueName := Format(ValueName, [FormatName]);
-  if FSettings[Index].Session and IsEmpty(FSessionPath) then
+  if FSettings[Index].Session and FSessionPath.IsEmpty then
     raise Exception.Create(_('Attempt to write session setting without session path'));
-  if (not FSettings[Index].Session) and IsNotEmpty(FSessionPath) then
+  if (not FSettings[Index].Session) and (not FSessionPath.IsEmpty) then
     SessionPath := ''
   else
     PrepareRegistry;
@@ -4099,10 +4067,15 @@ begin
   Result := TStringList.Create;
   FRegistry.GetKeyNames(Result);
   for i:=Result.Count-1 downto 0 do begin
-    FRegistry.OpenKey(CurPath+'\'+Result[i], False);
-    if FRegistry.ValueExists(GetValueName(asSessionFolder)) then begin
-      Folders.Add(Result[i]);
-      Result.Delete(i);
+    // Issue #1111 describes a recursive endless loop, which may be caused by an empty key name here?
+    if Result[i].IsEmpty then
+      Continue;
+    // ... may also be caused by some non accessible key. Check result of .OpenKey before looking for "Folder" value:
+    if FRegistry.OpenKey(CurPath+'\'+Result[i], False) then begin
+      if FRegistry.ValueExists(GetValueName(asSessionFolder)) then begin
+        Folders.Add(Result[i]);
+        Result.Delete(i);
+      end;
     end;
   end;
 end;
@@ -4119,6 +4092,7 @@ begin
     Sessions.Add(ParentPath+Names[i]);
   for i:=0 to Folders.Count-1 do
     GetSessionPaths(ParentPath+Folders[i]+'\', Sessions);
+  Sessions.Sort;
   Names.Free;
   Folders.Free;
 end;
@@ -4170,7 +4144,7 @@ begin
 end;
 
 
-procedure TAppSettings.ExportSettings(Filename: String);
+function TAppSettings.ExportSettings(Filename: String): Boolean;
 var
   Content, Value: String;
   DataType: TRegDataType;
@@ -4216,19 +4190,33 @@ begin
   Content := '';
   ReadKeyToContent(FBasePath);
   SaveUnicodeFile(FileName, Content);
+  Result := True;
 end;
 
 
-procedure TAppSettings.ExportSettings;
+function TAppSettings.ExportSettings: Boolean;
 begin
-  ExportSettings(FSettingsFile);
+  Result := False;
+  if not FPortableModeReadOnly then begin
+    try
+      ExportSettings(FSettingsFile);
+      Result := True;
+    except
+      on E:Exception do begin
+        FPortableModeReadOnly := True;
+        Raise Exception.Create(E.Message + CRLF + CRLF
+          + f_('Switching to read-only mode. Settings won''t be saved. Use the command line parameter %s to use a custom file path.', ['--psettings'])
+          );
+      end;
+    end;
+  end;
 end;
 
 
 function TAppSettings.DirnameUserAppData: String;
 begin
   // User folder for HeidiSQL's data (<user name>\Application Data)
-  Result := GetShellFolder(CSIDL_APPDATA) + '\' + APPNAME + '\';
+  Result := GetShellFolder(FOLDERID_RoamingAppData) + '\' + APPNAME + '\';
   if not DirectoryExists(Result) then begin
     ForceDirectories(Result);
   end;
@@ -4238,7 +4226,7 @@ end;
 function TAppSettings.DirnameUserDocuments: String;
 begin
   // "HeidiSQL" folder under user's documents folder, e.g. c:\Users\Mike\Documents\HeidiSQL\
-  Result := GetShellFolder(CSIDL_MYDOCUMENTS) + '\' + APPNAME + '\';
+  Result := GetShellFolder(FOLDERID_Documents) + '\' + APPNAME + '\';
   if not DirectoryExists(Result) then begin
     ForceDirectories(Result);
   end;
@@ -4270,10 +4258,23 @@ end;
 
 
 
+{ TUTF8NoBOMEncoding }
+
+function TUTF8NoBOMEncoding.GetPreamble: TBytes;
+begin
+  SetLength(Result, 0);
+end;
+
+
 initialization
 
 NumberChars := ['0'..'9', FormatSettings.DecimalSeparator, FormatSettings.ThousandSeparator];
 
+LibHandleUser32 := LoadLibrary('User32.dll');
+
+UTF8NoBOMEncoding := TUTF8NoBOMEncoding.Create;
+
+DateTimeNever := MinDateTime;
 
 end.
 

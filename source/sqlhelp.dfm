@@ -5,7 +5,11 @@ object frmSQLhelp: TfrmSQLhelp
   ClientHeight = 355
   ClientWidth = 582
   Color = clBtnFace
-  ParentFont = True
+  Font.Charset = DEFAULT_CHARSET
+  Font.Color = clWindowText
+  Font.Height = -11
+  Font.Name = 'Tahoma'
+  Font.Style = []
   FormStyle = fsStayOnTop
   OldCreateOrder = False
   OnClose = FormClose
@@ -22,6 +26,7 @@ object frmSQLhelp: TfrmSQLhelp
     Anchors = [akRight, akBottom]
     Caption = 'Search online'
     ImageIndex = 69
+    ImageName = 'icons8-internet'
     Images = MainForm.VirtualImageListMain
     TabOrder = 0
     OnClick = ButtonOnlinehelpClick
@@ -226,6 +231,8 @@ object frmSQLhelp: TfrmSQLhelp
     Top = 8
   end
   object URIHighlighter: TSynURISyn
+    URIAttri.Foreground = clHighlight
+    VisitedURIAttri.Foreground = clHighlight
     Left = 416
     Top = 8
   end

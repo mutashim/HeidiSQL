@@ -6,7 +6,7 @@ uses
   Windows, SysUtils, Classes, Graphics, Controls, Forms, Dialogs, StdCtrls,
   ComCtrls, ToolWin, VirtualTrees, SynRegExpr, ActiveX, ExtCtrls, SynEdit,
   SynMemo, Menus, Clipbrd, Math, System.UITypes,
-  grideditlinks, mysql_structures, dbconnection, apphelpers, gnugettext, StrUtils;
+  grideditlinks, dbstructures, dbconnection, apphelpers, gnugettext, StrUtils;
 
 type
   TFrame = TDBObjectEditor;
@@ -58,13 +58,13 @@ type
     tabALTERCode: TTabSheet;
     SynMemoCREATEcode: TSynMemo;
     SynMemoALTERcode: TSynMemo;
-    popupIndexes: TPopupMenu;
-    menuAddIndex: TMenuItem;
+    popupProperties: TPopupMenu;
+    menuAddProperty: TMenuItem;
     menuAddIndexColumn: TMenuItem;
-    menuRemoveIndex: TMenuItem;
+    menuRemoveProperty: TMenuItem;
     menuMoveUpIndex: TMenuItem;
     menuMoveDownIndex: TMenuItem;
-    menuClearIndexes: TMenuItem;
+    menuClearProperties: TMenuItem;
     popupColumns: TPopupMenu;
     menuAddColumn: TMenuItem;
     menuRemoveColumn: TMenuItem;
@@ -86,8 +86,13 @@ type
     menuPasteColumns: TMenuItem;
     tabPartitions: TTabSheet;
     SynMemoPartitions: TSynMemo;
-    pnlDpiHelperBasic: TPanel;
-    pnlDpiHelperOptions: TPanel;
+    tabCheckConstraints: TTabSheet;
+    tlbCheckConstraints: TToolBar;
+    btnAddCheckConstraint: TToolButton;
+    btnRemoveCheckConstraint: TToolButton;
+    btnClearCheckConstraints: TToolButton;
+    listCheckConstraints: TVirtualStringTree;
+    Copy1: TMenuItem;
     procedure Modification(Sender: TObject);
     procedure btnAddColumnClick(Sender: TObject);
     procedure btnRemoveColumnClick(Sender: TObject);
@@ -141,7 +146,7 @@ type
     procedure menuAddIndexColumnClick(Sender: TObject);
     procedure PageControlMainChange(Sender: TObject);
     procedure chkCharsetConvertClick(Sender: TObject);
-    procedure treeIndexesClick(Sender: TObject);
+    procedure AnyTreeClick(Sender: TObject);
     procedure btnDiscardClick(Sender: TObject);
     procedure popupColumnsPopup(Sender: TObject);
     procedure AddIndexByColumn(Sender: TObject);
@@ -172,6 +177,30 @@ type
       Node: PVirtualNode; Column: TColumnIndex; HitPositions: THitPositions);
     procedure menuCopyColumnsClick(Sender: TObject);
     procedure menuPasteColumnsClick(Sender: TObject);
+    procedure listColumnsChange(Sender: TBaseVirtualTree; Node: PVirtualNode);
+    procedure AnyTreeStructureChange(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Reason: TChangeReason);
+    procedure listCheckConstraintsBeforePaint(Sender: TBaseVirtualTree;
+      TargetCanvas: TCanvas);
+    procedure btnAddCheckConstraintClick(Sender: TObject);
+    procedure listCheckConstraintsGetImageIndex(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Kind: TVTImageKind; Column: TColumnIndex;
+      var Ghosted: Boolean; var ImageIndex: TImageIndex);
+    procedure listCheckConstraintsFocusChanged(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Column: TColumnIndex);
+    procedure listCheckConstraintsGetText(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Column: TColumnIndex; TextType: TVSTTextType;
+      var CellText: string);
+    procedure listCheckConstraintsCreateEditor(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Column: TColumnIndex; out EditLink: IVTEditLink);
+    procedure listCheckConstraintsNewText(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Column: TColumnIndex; NewText: string);
+    procedure btnClearCheckConstraintsClick(Sender: TObject);
+    procedure btnRemoveCheckConstraintClick(Sender: TObject);
+    procedure popupPropertiesPopup(Sender: TObject);
+    procedure menuRemovePropertyClick(Sender: TObject);
+    procedure menuClearPropertiesClick(Sender: TObject);
+    procedure menuAddPropertyClick(Sender: TObject);
   private
     { Private declarations }
     FLoaded: Boolean;
@@ -179,7 +208,10 @@ type
     FColumns: TTableColumnList;
     FKeys: TTableKeyList;
     FForeignKeys: TForeignKeyList;
-    DeletedKeys, DeletedForeignKeys: TStringList;
+    FCheckConstraints: TCheckConstraintList;
+    FDeletedKeys,
+    FDeletedForeignKeys,
+    FDeletedCheckConstraints: TStringList;
     procedure ValidateColumnControls;
     procedure ValidateIndexControls;
     procedure MoveFocusedIndexPart(NewIdx: Cardinal);
@@ -189,6 +221,7 @@ type
     procedure UpdateSQLcode;
     function CellEditingAllowed(Node: PVirtualNode; Column: TColumnIndex): Boolean;
     procedure CalcMinColWidth;
+    procedure UpdateTabCaptions;
   public
     { Public declarations }
     constructor Create(AOwner: TComponent); override;
@@ -209,10 +242,10 @@ uses main;
 constructor TfrmTableEditor.Create(AOwner: TComponent);
 begin
   inherited;
-  TranslateComponent(Self);
   FixVT(listColumns);
   FixVT(treeIndexes);
   FixVT(listForeignKeys);
+  FixVT(listCheckConstraints);
   // Try the best to auto fit various column widths, respecting a custom DPI setting and a pulldown arrow
   listColumns.Header.Columns[2].Width := Mainform.Canvas.TextWidth('GEOMETRYCOLLECTION') + 6*listColumns.TextMargin;
   listColumns.Header.Columns[7].Width := Mainform.Canvas.TextWidth('AUTO_INCREMENT') + 4*listColumns.TextMargin;
@@ -221,13 +254,16 @@ begin
   Mainform.RestoreListSetup(listColumns);
   Mainform.RestoreListSetup(treeIndexes);
   Mainform.RestoreListSetup(listForeignKeys);
+  MainForm.RestoreListSetup(listCheckConstraints);
   comboRowFormat.Items.CommaText := 'DEFAULT,DYNAMIC,FIXED,COMPRESSED,REDUNDANT,COMPACT';
   comboInsertMethod.Items.CommaText := 'NO,FIRST,LAST';
   FColumns := TTableColumnList.Create;
   FKeys := TTableKeyList.Create;
   FForeignKeys := TForeignKeyList.Create;
-  DeletedKeys := TStringList.Create;
-  DeletedForeignKeys := TStringList.Create;
+  FDeletedKeys := TStringList.Create;
+  FDeletedForeignKeys := TStringList.Create;
+  FDeletedCheckConstraints := TStringList.Create;
+  FDeletedCheckConstraints.Duplicates := dupIgnore;
   editName.MaxLength := NAME_LEN;
 end;
 
@@ -238,6 +274,7 @@ begin
   Mainform.SaveListSetup(listColumns);
   Mainform.SaveListSetup(treeIndexes);
   Mainform.SaveListSetup(listForeignKeys);
+  MainForm.SaveListSetup(listCheckConstraints);
   inherited;
 end;
 
@@ -261,9 +298,10 @@ begin
     end;
   end;
   listColumns.BeginUpdate;
-  FColumns.Clear;
-  btnClearIndexesClick(Self);
-  btnClearForeignKeysClick(Self);
+  listColumns.Clear;
+  treeIndexes.Clear;
+  listForeignKeys.Clear;
+  listCheckConstraints.Clear;
   tabALTERcode.TabVisible := DBObject.Name <> '';
   // Clear value editors
   memoComment.Text := '';
@@ -284,9 +322,13 @@ begin
   if DBObject.Name = '' then begin
     // Creating new table
     editName.Text := '';
-    if DBObject.Connection.Parameters.IsMySQL then
-      comboCollation.ItemIndex := comboCollation.Items.IndexOf(DBObject.Connection.GetVar('SHOW VARIABLES LIKE ''collation_database''', 1));
+    if DBObject.Connection.Parameters.IsAnyMySQL then
+      comboCollation.ItemIndex := comboCollation.Items.IndexOf(DBObject.Connection.GetSessionVariable('collation_database'));
     PageControlMain.ActivePage := tabBasic;
+    FColumns := TTableColumnList.Create;
+    FKeys := TTableKeyList.Create;
+    FForeignKeys := TForeignKeyList.Create;
+    FCheckConstraints := TCheckConstraintList.Create;
   end else begin
     // Editing existing table
     editName.Text := DBObject.Name;
@@ -334,11 +376,22 @@ begin
     else
       SynMemoPartitions.Clear;
 
-    DBObject.Connection.ParseTableStructure(DBObject.CreateCode, FColumns, FKeys, FForeignKeys);
+    FColumns := DBObject.TableColumns;
+    FKeys := DBObject.TableKeys;
+    FForeignKeys := DBObject.TableForeignKeys;
+    FCheckConstraints := DBObject.TableCheckConstraints;
   end;
   listColumns.RootNodeCount := FColumns.Count;
   DeInitializeVTNodes(listColumns);
   listColumns.EndUpdate;
+  // Init all nodes, so they keep their FColumn data after click on Remove button, see #245
+  listColumns.ValidateNode(nil, True);
+
+  // Set root nodes per BeforePaint event:
+  treeIndexes.Invalidate;
+  listForeignKeys.Invalidate;
+  listCheckConstraints.Invalidate;
+
   // Validate controls
   comboEngineSelect(comboEngine);
   ValidateColumnControls;
@@ -348,10 +401,11 @@ begin
   AlterCodeValid := False;
   PageControlMainChange(Self); // Foreign key editor needs a hit
   // Buttons are randomly moved, since VirtualTree update, see #440
-  btnSave.Top := Height - btnSave.Height - Round(3 * DpiScaleFactor(MainForm));
+  btnSave.Top := Height - btnSave.Height - 3;
   btnHelp.Top := btnSave.Top;
   btnDiscard.Top := btnSave.Top;
   UpdateSQLCode;
+  UpdateTabCaptions;
   CalcMinColWidth;
   // Indicate change mechanisms can call their events now. See Modification().
   FLoaded := True;
@@ -374,10 +428,13 @@ begin
   // Save changes, and make it impossible to (accidentally) click the save button twice
   btnSave.Enabled := False;
   btnSave.Repaint;
-  if ApplyModifications = mrOK then
-    Init(DBObject)
-  else // Re-enable save button when something went wrong
+  if ApplyModifications = mrOK then begin
+    // Initialize all edit fields with fresh result from SHOW TABLE STATUS row
+    Init(MainForm.ActiveDbObj)
+  end else begin
+    // Re-enable save button when something went wrong
     btnSave.Enabled := True;
+  end;
 end;
 
 
@@ -410,8 +467,7 @@ begin
       DBObject.Connection.Query(Query.SQL);
     // Rename table
     if (DBObject.Name <> '') and (editName.Text <> DBObject.Name) then begin
-      Rename := DBObject.Connection.GetSQLSpecifity(spRenameTable);
-      Rename := Format(Rename, [DBObject.QuotedName, DBObject.Connection.QuoteIdent(editName.Text)]);
+      Rename := DBObject.Connection.GetSQLSpecifity(spRenameTable, [DBObject.QuotedName, DBObject.Connection.QuoteIdent(editName.Text)]);
       DBObject.Connection.Query(Rename);
     end;
     tabALTERcode.TabVisible := DBObject.Name <> '';
@@ -424,17 +480,17 @@ begin
     end;
     // Set table name for altering if Apply was clicked
     DBObject.Name := editName.Text;
-    DBObject.CreateCode := '';
+    DBObject.UnloadDetails;
     tabALTERcode.TabVisible := DBObject.Name <> '';
     Mainform.UpdateEditorTab;
     MainForm.tabData.TabVisible := True;
     Mainform.RefreshTree(DBObject);
-    Mainform.RefreshHelperNode(HELPERNODE_COLUMNS);
+    Mainform.RefreshHelperNode(TQueryTab.HelperNodeColumns);
     ResetModificationFlags;
     AlterCodeValid := False;
     CreateCodeValid := False;
   except
-    on E:EDatabaseError do begin
+    on E:EDbError do begin
       ErrorDialog(E.Message);
       Result := mrAbort;
     end;
@@ -462,19 +518,25 @@ begin
       FColumns[i].Status := esUntouched;
     end;
   end;
-  DeletedKeys.Clear;
+  FDeletedKeys.Clear;
   for i:=0 to FKeys.Count-1 do begin
     FKeys[i].OldName := FKeys[i].Name;
     FKeys[i].OldIndexType := FKeys[i].IndexType;
     FKeys[i].Added := False;
     FKeys[i].Modified := False;
   end;
-  DeletedForeignKeys.Clear;
+  FDeletedForeignKeys.Clear;
   for i:=0 to FForeignKeys.Count-1 do begin
     FForeignKeys[i].OldKeyName := FForeignKeys[i].KeyName;
     FForeignKeys[i].Added := False;
     FForeignKeys[i].Modified := False;
   end;
+  FDeletedCheckConstraints.Clear;
+  for i:=0 to FCheckConstraints.Count-1 do begin
+    FCheckConstraints[i].Added := False;
+    FCheckConstraints[i].Modified := False;
+  end;
+
   Modified := False;
   btnSave.Enabled := Modified;
   btnDiscard.Enabled := Modified;
@@ -484,11 +546,14 @@ end;
 function TfrmTableEditor.ComposeAlterStatement: TSQLBatch;
 var
   Specs: TStringList;
-  ColSpec, IndexSQL, SQL, OldColName, OverrideCollation: String;
+  ColSpec, IndexSQL, SQL, OverrideCollation,
+  AlterColBase, AddColBase: String;
   i: Integer;
   Results: TDBQuery;
   Col, PreviousCol: PTableColumn;
+  Constraint: TCheckConstraint;
   Node: PVirtualNode;
+  Conn: TDBConnection;
 
   procedure FinishSpecs;
   begin
@@ -509,6 +574,7 @@ begin
   Screen.Cursor := crHourglass;
   Specs := TStringList.Create;
   SQL := '';
+  Conn := DBObject.Connection;
 
   // Special case for altered foreign keys: These have to be dropped in a seperate query
   // otherwise the server would return error 121 "Duplicate key on write or update"
@@ -517,7 +583,7 @@ begin
   //   ALTER TABLE  statement. Separate statements are required."
   for i:=0 to FForeignKeys.Count-1 do begin
     if FForeignKeys[i].Modified and (not FForeignKeys[i].Added) then
-      Specs.Add('DROP FOREIGN KEY '+DBObject.Connection.QuoteIdent(FForeignKeys[i].OldKeyName));
+      Specs.Add('DROP FOREIGN KEY '+Conn.QuoteIdent(FForeignKeys[i].OldKeyName));
   end;
   FinishSpecs;
 
@@ -526,29 +592,29 @@ begin
   // appending an ALTER COLUMN ... DROP DEFAULT, without getting an "unknown column" error.
   // Also, do this after the data type was altered, if from TEXT > VARCHAR e.g.
   for i:=0 to FColumns.Count-1 do begin
-    if DBObject.Connection.Parameters.IsMySQL
-      and (FColumns[i].FStatus = esModified)
+    if (Conn.Parameters.IsAnyMySQL or Conn.Parameters.IsAnyPostgreSQL)
+      and (FColumns[i].Status = esModified)
       and (FColumns[i].DefaultType = cdtNothing)
       and (FColumns[i].OldDataType.HasDefault)
       then
-      Specs.Add('ALTER '+DBObject.Connection.QuoteIdent(FColumns[i].OldName)+' DROP DEFAULT');
+      Specs.Add('ALTER '+Conn.QuoteIdent(FColumns[i].OldName)+' DROP DEFAULT');
   end;
   FinishSpecs;
 
   if memoComment.Tag = MODIFIEDFLAG then begin
-    case DBObject.Connection.Parameters.NetTypeGroup of
+    case Conn.Parameters.NetTypeGroup of
       ngMySQL, ngMSSQL: begin
-        Specs.Add('COMMENT=' + esc(memoComment.Text));
+        Specs.Add('COMMENT=' + Conn.EscapeString(memoComment.Text));
       end;
       ngPgSQL: begin
-        AddQuery('COMMENT ON TABLE '+DBObject.QuotedName+' IS '+DBObject.Connection.EscapeString(memoComment.Text));
+        AddQuery('COMMENT ON TABLE '+DBObject.QuotedName+' IS '+Conn.EscapeString(memoComment.Text));
       end;
     end;
   end;
   if (comboCollation.Tag = MODIFIEDFLAG) or (chkCharsetConvert.Checked) then
-    Specs.Add('COLLATE=' + esc(comboCollation.Text));
+    Specs.Add('COLLATE=' + Conn.EscapeString(comboCollation.Text));
   if (comboEngine.Tag = MODIFIEDFLAG) and (comboEngine.ItemIndex > 0) then begin
-    if DBObject.Connection.ServerVersionInt < 40018 then
+    if Conn.ServerVersionInt < 40018 then
       Specs.Add('TYPE=' + comboEngine.Text)
     else
       Specs.Add('ENGINE=' + comboEngine.Text);
@@ -568,7 +634,7 @@ begin
   if comboInsertMethod.Enabled and (comboInsertMethod.Tag = MODIFIEDFLAG) and (comboInsertMethod.Text <> '') then
     Specs.Add('INSERT_METHOD='+comboInsertMethod.Text);
   if chkCharsetConvert.Checked then begin
-    Results := DBObject.Connection.CollationTable;
+    Results := Conn.CollationTable;
     if Assigned(Results) then while not Results.Eof do begin
       if Results.Col('Collation') = comboCollation.Text then begin
         Specs.Add('CONVERT TO CHARSET '+Results.Col('Charset'));
@@ -579,49 +645,93 @@ begin
   end;
 
   // Update columns
-  MainForm.EnableProgress(FColumns.Count + DeletedKeys.Count + FKeys.Count);
   Node := listColumns.GetFirst;
   PreviousCol := nil;
   while Assigned(Node) do begin
-    Mainform.ProgressStep;
     Col := listColumns.GetNodeData(Node);
     if Col.Status <> esUntouched then begin
-      OverrideCollation := '';
-      if chkCharsetConvert.Checked then
-        OverrideCollation := comboCollation.Text;
-      ColSpec := Col.SQLCode(OverrideCollation);
-      // Server version requirement, see http://dev.mysql.com/doc/refman/4.1/en/alter-table.html
-      if (DBObject.Connection.Parameters.NetTypeGroup = ngMySQL) and (DBObject.Connection.ServerVersionInt >= 40001) then begin
-        if PreviousCol = nil then
-          ColSpec := ColSpec + ' FIRST'
-        else
-          ColSpec := ColSpec + ' AFTER '+DBObject.Connection.QuoteIdent(PreviousCol.Name);
-      end;
-      case DBObject.Connection.Parameters.NetTypeGroup of
-        ngMySQL: OldColName := DBObject.Connection.QuoteIdent(Col.OldName);
-        ngMSSQL: OldColName := '';
-        // PostgreSQL?? What does this?
-      end;
-      if Col.Status = esModified then
-        Specs.Add(Format(DBObject.Connection.GetSQLSpecifity(spChangeColumn), [OldColName, ColSpec]))
-      else if Col.Status in [esAddedUntouched, esAddedModified] then
-        Specs.Add(Format(DBObject.Connection.GetSQLSpecifity(spAddColumn), [ColSpec]));
+      OverrideCollation := IfThen(chkCharsetConvert.Checked, comboCollation.Text);
+      AlterColBase := Conn.GetSQLSpecifity(spChangeColumn);
+      AddColBase := Conn.GetSQLSpecifity(spAddColumn);
 
-      // MSSQL + Postgres want one ALTER TABLE query per ADD/CHANGE COLUMN
-      case DBObject.Connection.Parameters.NetTypeGroup of
-        ngMySQL:;
+      case Conn.Parameters.NetTypeGroup of
+
+        ngMySQL, ngSQLite: begin
+          ColSpec := Col.SQLCode(OverrideCollation);
+          // Server version requirement, see http://dev.mysql.com/doc/refman/4.1/en/alter-table.html
+          if Conn.ServerVersionInt >= 40001 then begin
+            if PreviousCol = nil then
+              ColSpec := ColSpec + ' FIRST'
+            else
+              ColSpec := ColSpec + ' AFTER '+Conn.QuoteIdent(PreviousCol.Name);
+          end;
+          case Col.Status of
+            esModified: begin
+              Specs.Add(Format(AlterColBase, [Conn.QuoteIdent(Col.OldName), ColSpec]));
+            end;
+            esAddedUntouched, esAddedModified: begin
+              Specs.Add(Format(AddColBase, [ColSpec]));
+            end;
+          end;
+        end;
+
         ngMSSQL: begin
-          AddQuery('EXECUTE sp_addextendedproperty '+DBObject.Connection.EscapeString('MS_Description')+', '+
-            DBObject.Connection.EscapeString(Col.Comment)+', '+
-            DBObject.Connection.EscapeString('Schema')+', '+DBObject.Connection.EscapeString(DBObject.Schema)+', '+
-            DBObject.Connection.EscapeString('table')+', '+DBObject.Connection.EscapeString(DBObject.Name)+', '+
-            DBObject.Connection.EscapeString('column')+', '+DBObject.Connection.EscapeString(Col.Name)
+          ColSpec := Col.SQLCode(OverrideCollation);
+          case Col.Status of
+            esModified: begin
+              Specs.Add(Format(AlterColBase, [Conn.QuoteIdent(Col.OldName), ColSpec]));
+            end;
+            esAddedUntouched, esAddedModified: begin
+              Specs.Add(Format(AddColBase, [ColSpec]));
+            end;
+          end;
+          AddQuery('EXECUTE sp_addextendedproperty '+Conn.EscapeString('MS_Description')+', '+
+            Conn.EscapeString(Col.Comment)+', '+
+            Conn.EscapeString('Schema')+', '+Conn.EscapeString(DBObject.Schema)+', '+
+            Conn.EscapeString('table')+', '+Conn.EscapeString(DBObject.Name)+', '+
+            Conn.EscapeString('column')+', '+Conn.EscapeString(Col.Name)
             );
         end;
+
         ngPgSQL: begin
-          AddQuery('COMMENT ON COLUMN %s.'+DBObject.Connection.QuoteIdent(Col.Name)+' IS '+DBObject.Connection.EscapeString(Col.Comment));
+          // https://www.postgresql.org/docs/current/sql-altertable.html
+          // All the forms of ALTER TABLE that act on a single table, except RENAME, SET SCHEMA, ATTACH PARTITION,
+          // and DETACH PARTITION can be combined into a list of multiple alterations to be applied together.
+          case Col.Status of
+            esModified: begin
+              // Rename
+              if Col.Name <> Col.OldName then begin
+                FinishSpecs;
+                Specs.Add(Format('RENAME COLUMN %s TO %s', [Conn.QuoteIdent(Col.OldName), Conn.QuoteIdent(Col.Name)]));
+                FinishSpecs;
+              end;
+              // Type
+              ColSpec := 'TYPE ' + Col.SQLCode(OverrideCollation, [cpType]);
+              Specs.Add(Format(AlterColBase, [Conn.QuoteIdent(Col.Name), ColSpec]));
+              // NULL allowed?
+              ColSpec := IfThen(Col.AllowNull, 'DROP NOT NULL', 'SET NOT NULL');
+              Specs.Add(Format(AlterColBase, [Conn.QuoteIdent(Col.Name), ColSpec]));
+              // Default
+              if Col.DefaultType=cdtNothing then
+                ColSpec := 'DROP DEFAULT'
+              else
+                ColSpec := 'SET ' + Col.SQLCode(OverrideCollation, [cpDefault]);
+              Specs.Add(Format(AlterColBase, [Conn.QuoteIdent(Col.Name), ColSpec]));
+              // Collation
+              ColSpec := Col.SQLCode(OverrideCollation, [cpCollation]);
+              if not ColSpec.IsEmpty then
+                Specs.Add(Format(AlterColBase, [Conn.QuoteIdent(Col.Name), ColSpec]));
+            end;
+            esAddedUntouched, esAddedModified: begin
+              ColSpec := Col.SQLCode(OverrideCollation);
+              Specs.Add(Format(AddColBase, [ColSpec]));
+            end;
+          end;
+          AddQuery('COMMENT ON COLUMN %s.'+Conn.QuoteIdent(Col.Name)+' IS '+Conn.EscapeString(Col.Comment));
         end;
+
       end;
+
     end;
     PreviousCol := Col;
     Node := listColumns.GetNextSibling(Node);
@@ -630,42 +740,50 @@ begin
   // Deleted columns, not available as Node in above loop
   for i:=0 to FColumns.Count-1 do begin
     if FColumns[i].Status = esDeleted then begin
-      Specs.Add('DROP COLUMN '+DBObject.Connection.QuoteIdent(FColumns[i].OldName));
+      Specs.Add('DROP COLUMN '+Conn.QuoteIdent(FColumns[i].OldName));
       // MSSQL wants one ALTER TABLE query per DROP COLUMN
-      if DBObject.Connection.Parameters.IsMSSQL then
+      if Conn.Parameters.IsAnyMSSQL then
         FinishSpecs;
     end;
   end;
 
   // Drop indexes, also changed indexes, which will be readded below
-  for i:=0 to DeletedKeys.Count-1 do begin
-    Mainform.ProgressStep;
-    if DeletedKeys[i] = PKEY then
+  for i:=0 to FDeletedKeys.Count-1 do begin
+    if FDeletedKeys[i] = TTableKey.PRIMARY then
       IndexSQL := 'PRIMARY KEY'
     else
-      IndexSQL := 'INDEX ' + DBObject.Connection.QuoteIdent(DeletedKeys[i]);
+      IndexSQL := 'INDEX ' + Conn.QuoteIdent(FDeletedKeys[i]);
     Specs.Add('DROP '+IndexSQL);
   end;
   // Add changed or added indexes
   for i:=0 to FKeys.Count-1 do begin
-    Mainform.ProgressStep;
     if FKeys[i].Modified and (not FKeys[i].Added) then begin
-      if FKeys[i].OldIndexType = PKEY then
+      if FKeys[i].OldIndexType = TTableKey.PRIMARY then
         IndexSQL := 'PRIMARY KEY'
       else
-        IndexSQL := 'INDEX ' + DBObject.Connection.QuoteIdent(FKeys[i].OldName);
+        IndexSQL := 'INDEX ' + Conn.QuoteIdent(FKeys[i].OldName);
       Specs.Add('DROP '+IndexSQL);
     end;
     if FKeys[i].Added or FKeys[i].Modified then
       Specs.Add('ADD '+FKeys[i].SQLCode);
   end;
 
-  for i:=0 to DeletedForeignKeys.Count-1 do
-    Specs.Add('DROP FOREIGN KEY '+DBObject.Connection.QuoteIdent(DeletedForeignKeys[i]));
+  for i:=0 to FDeletedForeignKeys.Count-1 do
+    Specs.Add('DROP FOREIGN KEY '+Conn.QuoteIdent(FDeletedForeignKeys[i]));
   for i:=0 to FForeignKeys.Count-1 do begin
     if FForeignKeys[i].Added or FForeignKeys[i].Modified then
       Specs.Add('ADD '+FForeignKeys[i].SQLCode(True));
   end;
+
+  // Check constraints
+  for i:=0 to FDeletedCheckConstraints.Count-1 do begin
+    Specs.Add('DROP CONSTRAINT ' + Conn.QuoteIdent(FDeletedCheckConstraints[i]));
+  end;
+  for Constraint in FCheckConstraints do begin
+    if Constraint.Added or Constraint.Modified then
+      Specs.Add('ADD ' + Constraint.SQLCode);
+  end;
+
 
   FinishSpecs;
 
@@ -674,7 +792,6 @@ begin
 
   FreeAndNil(Specs);
   Mainform.ShowStatusMsg;
-  MainForm.DisableProgress;
   Screen.Cursor := crDefault;
 end;
 
@@ -683,6 +800,7 @@ function TfrmTableEditor.ComposeCreateStatement: TSQLBatch;
 var
   i, IndexCount: Integer;
   Col: PTableColumn;
+  Constraint: TCheckConstraint;
   Node: PVirtualNode;
   tmp, SQL: String;
 begin
@@ -707,14 +825,19 @@ begin
   for i:=0 to FForeignKeys.Count-1 do
     SQL := SQL + #9 + FForeignKeys[i].SQLCode(True) + ','+CRLF;
 
+  // Check constraints
+  for Constraint in FCheckConstraints do begin
+    SQL := SQL + #9 + Constraint.SQLCode + ',' + sLineBreak;
+  end;
+
   if Integer(listColumns.RootNodeCount) + IndexCount + FForeignKeys.Count > 0 then
     Delete(SQL, Length(SQL)-2, 3);
 
   SQL := SQL + CRLF + ')' + CRLF;
   if memoComment.Text <> '' then
-    SQL := SQL + 'COMMENT='+esc(memoComment.Text) + CRLF;
+    SQL := SQL + 'COMMENT='+DBObject.Connection.EscapeString(memoComment.Text) + CRLF;
   if comboCollation.Text <> '' then
-    SQL := SQL + 'COLLATE='+esc(comboCollation.Text) + CRLF;
+    SQL := SQL + 'COLLATE='+DBObject.Connection.EscapeString(comboCollation.Text) + CRLF;
   if (comboEngine.Text <> '') and (comboEngine.ItemIndex > 0) then begin
     if DBObject.Connection.ServerVersionInt < 40018 then
       SQL := SQL + 'TYPE='+comboEngine.Text + CRLF
@@ -739,7 +862,7 @@ begin
     SQL := SQL +  '/*!50100 ' + SynMemoPartitions.Text + ' */';
   SQL := SQL + ';' + CRLF;
 
-  if DBObject.Connection.Parameters.IsPostgreSQL then begin
+  if DBObject.Connection.Parameters.IsAnyPostgreSQL then begin
     Node := listColumns.GetFirst;
     while Assigned(Node) do begin
       Col := listColumns.GetNodeData(Node);
@@ -820,13 +943,16 @@ begin
   SelectNode(listColumns, NewNode);
   Modification(Sender);
   ValidateColumnControls;
-  listColumns.EditNode(NewNode, 1);
+  // not sufficient, if list has minimum height, see https://www.heidisql.com/forum.php?t=35766
+  // if listColumns.ScrollIntoView(NewNode, False) then
+  if listColumns.Height > listColumns.Header.Height+20 then
+    listColumns.EditNode(NewNode, 1);
 end;
 
 
 procedure TfrmTableEditor.btnRemoveColumnClick(Sender: TObject);
 var
-  Node, NodeDelete, NodeFocus: PVirtualNode;
+  Node, NodeFocus: PVirtualNode;
   Col: PTableColumn;
 begin
   // Remove selected column(s)
@@ -847,13 +973,8 @@ begin
     end;
     Node := listColumns.GetNextSibling(Node);
   end;
-  // Delete selected + visible
-  Node := GetNextNode(listColumns, nil, True);
-  while Assigned(Node) do begin
-    NodeDelete := Node;
-    Node := GetNextNode(listColumns, Node, True);
-    listColumns.DeleteNode(NodeDelete);
-  end;
+  // Delete selected, including those which are invisible through filter
+  listColumns.DeleteSelectedNodes;
 
   if not Assigned(NodeFocus) then
     NodeFocus := listColumns.GetLast;
@@ -865,19 +986,37 @@ end;
 
 
 procedure TfrmTableEditor.btnMoveUpColumnClick(Sender: TObject);
+var
+  Node: PVirtualNode;
 begin
-  // Move column up
+  // Move up selected columns
   listColumns.EndEditNode;
-  listColumns.MoveTo(listColumns.FocusedNode, listColumns.GetPreviousSibling(listColumns.FocusedNode), amInsertBefore, False);
+
+  Node := GetNextNode(listColumns, nil, true);
+  while Assigned(Node) do begin
+    listColumns.MoveTo(Node, listColumns.GetPreviousSibling(Node), amInsertBefore, False);
+    Node := GetNextNode(listColumns, Node, true);
+  end;
+
   ValidateColumnControls;
 end;
 
 
 procedure TfrmTableEditor.btnMoveDownColumnClick(Sender: TObject);
+var
+  Node: PVirtualNode;
 begin
-  // Move column down
+  // Move down selected columns
   listColumns.EndEditNode;
-  listColumns.MoveTo(listColumns.FocusedNode, listColumns.GetNextSibling(listColumns.FocusedNode), amInsertAfter, False);
+
+  Node := listColumns.GetLast;
+  while Assigned(Node) do begin
+    if listColumns.Selected[Node] then begin
+      listColumns.MoveTo(Node, listColumns.GetNextSibling(Node), amInsertAfter, False);
+    end;
+    Node := listColumns.GetPrevious(Node);
+  end;
+
   ValidateColumnControls;
 end;
 
@@ -1006,15 +1145,23 @@ end;
 
 
 procedure TfrmTableEditor.ValidateColumnControls;
-var Node: PVirtualNode;
+var
+  NextSelected, LastSelected: PVirtualNode;
 begin
-  Node := listColumns.FocusedNode;
   btnRemoveColumn.Enabled := listColumns.SelectedCount > 0;
-  btnMoveUpColumn.Enabled := Assigned(Node)
-    and (Node <> listColumns.GetFirst)
+
+  LastSelected := nil;
+  NextSelected := GetNextNode(listColumns, nil, True);
+  while Assigned(NextSelected) do begin
+    LastSelected := NextSelected;
+    NextSelected := GetNextNode(listColumns, NextSelected, True);
+  end;
+
+  btnMoveUpColumn.Enabled := (listColumns.SelectedCount > 0)
+    and (listColumns.GetFirstSelected <> listColumns.GetFirst)
     and (DBObject.Connection.Parameters.NetTypeGroup = ngMySQL);
-  btnMoveDownColumn.Enabled := Assigned(Node)
-    and (Node <> listColumns.GetLast)
+  btnMoveDownColumn.Enabled := (listColumns.SelectedCount > 0)
+    and (LastSelected <> listColumns.GetLast)
     and (DBObject.Connection.Parameters.NetTypeGroup = ngMySQL);
 
   menuRemoveColumn.Enabled := btnRemoveColumn.Enabled;
@@ -1044,7 +1191,7 @@ begin
     4: begin
       Result := (Col.DataType.Category in [dtcInteger, dtcReal])
         and (Col.DataType.Index <> dtBit)
-        and (DBObject.Connection.Parameters.IsMySQL);
+        and (DBObject.Connection.Parameters.IsAnyMySQL);
       if (not Result) and Col.Unsigned then begin
         Col.Unsigned := False;
         Col.Status := esModified;
@@ -1054,7 +1201,7 @@ begin
       // Do not allow NULL, and force NOT NULL, on primary key columns
       Result := True;
       for i:=0 to FKeys.Count-1 do begin
-        if (FKeys[i].IndexType = PKEY) and (FKeys[i].Columns.IndexOf(Col.Name) > -1) then begin
+        if (FKeys[i].IndexType = TTableKey.PRIMARY) and (FKeys[i].Columns.IndexOf(Col.Name) > -1) then begin
           if Col.AllowNull then begin
             Col.AllowNull := False;
             Col.Status := esModified;
@@ -1067,7 +1214,7 @@ begin
     6: begin
       Result := (Col.DataType.Category in [dtcInteger, dtcReal])
         and (Col.DataType.Index <> dtBit)
-        and (DBObject.Connection.Parameters.IsMySQL);
+        and (DBObject.Connection.Parameters.IsAnyMySQL);
       if (not Result) and Col.ZeroFill then begin
         Col.ZeroFill := False;
         Col.Status := esModified;
@@ -1117,7 +1264,7 @@ begin
       if (CellText <> '') and (chkCharsetConvert.Checked) then
         CellText := comboCollation.Text;
     end;
-    10: CellText := Col.Expression;
+    10: CellText := Col.GenerationExpression;
     11: CellText := Col.Virtuality;
   end;
 end;
@@ -1151,7 +1298,7 @@ begin
   Col := Sender.GetNodeData(Node);
   // Bold font for primary key columns
   for i:=0 to FKeys.Count-1 do begin
-    if (FKeys[i].IndexType = PKEY) and (FKeys[i].Columns.IndexOf(Col.Name) > -1) then begin
+    if (FKeys[i].IndexType = TTableKey.PRIMARY) and (FKeys[i].Columns.IndexOf(Col.Name) > -1) then begin
       TargetCanvas.Font.Style := TargetCanvas.Font.Style + [fsBold];
       break;
     end;
@@ -1214,30 +1361,36 @@ begin
       // Suggest length/set if required
       if (not Col.LengthCustomized) or (Col.DataType.RequiresLength and (Col.LengthSet = '')) then
         Col.LengthSet := Col.DataType.DefLengthSet;
-      // Auto-fix user selected default type which can be invalid now
-      case Col.DataType.Category of
-        dtcInteger: begin
-          Col.DefaultType := cdtExpression;
-          if Col.AllowNull then
-            Col.DefaultType := cdtNull
-          else
-            Col.DefaultText := IntToStr(MakeInt(Col.DefaultText));
-        end;
-        dtcReal: begin
-          Col.DefaultType := cdtExpression;
-          if Col.AllowNull then
-            Col.DefaultType := cdtNull
-          else
-            Col.DefaultText := FloatToStr(MakeFloat(Col.DefaultText));
-        end;
-        dtcText, dtcBinary, dtcSpatial, dtcOther: begin
-          Col.DefaultType := cdtText;
-          if Col.AllowNull then
-            Col.DefaultType := cdtNull;
-        end;
-        dtcTemporal: begin
-          if Col.DefaultType = cdtAutoinc then
-            Col.DefaultType := cdtNothing;
+      // Auto-change default type and text
+      if not Col.DataType.HasDefault then begin
+        Col.DefaultType := cdtNothing;
+        Col.DefaultText := '';
+      end else begin
+        // Auto-fix user selected default type which can be invalid now
+        case Col.DataType.Category of
+          dtcInteger: begin
+            Col.DefaultType := cdtExpression;
+            if Col.AllowNull then
+              Col.DefaultType := cdtNull
+            else
+              Col.DefaultText := IntToStr(MakeInt(Col.DefaultText));
+          end;
+          dtcReal: begin
+            Col.DefaultType := cdtExpression;
+            if Col.AllowNull then
+              Col.DefaultType := cdtNull
+            else
+              Col.DefaultText := FloatToStr(MakeFloat(Col.DefaultText));
+          end;
+          dtcText, dtcBinary, dtcSpatial, dtcOther: begin
+            Col.DefaultType := cdtText;
+            if Col.AllowNull then
+              Col.DefaultType := cdtNull;
+          end;
+          dtcTemporal: begin
+            if Col.DefaultType = cdtAutoinc then
+              Col.DefaultType := cdtNothing;
+          end;
         end;
       end;
 
@@ -1259,7 +1412,7 @@ begin
     end;
     8: Col.Comment := NewText;
     9: Col.Collation := NewText;
-    10: Col.Expression := NewText;
+    10: Col.GenerationExpression := NewText;
     11: Col.Virtuality := NewText;
   end;
   if WasModified then begin
@@ -1276,6 +1429,14 @@ begin
   Col := Sender.GetNodeData(Node);
   Col.Status := esModified;
   Modification(Sender);
+end;
+
+
+procedure TfrmTableEditor.listColumnsChange(Sender: TBaseVirtualTree;
+  Node: PVirtualNode);
+begin
+  // Enable/disable move buttons
+  ValidateColumnControls;
 end;
 
 
@@ -1364,18 +1525,21 @@ begin
   Col := Sender.GetNodeData(Node);
   case Column of
     2: begin // Datatype pulldown
-      DatatypeEditor := TDatatypeEditorLink.Create(VT);
+      DatatypeEditor := TDatatypeEditorLink.Create(VT, True);
       EditLink := DataTypeEditor;
       end;
     9: begin // Collation pulldown
-      EnumEditor := TEnumEditorLink.Create(VT);
+      EnumEditor := TEnumEditorLink.Create(VT, True);
+      EnumEditor.AllowCustomText := True;
+      EnumEditor.ItemMustExist := True;
       EnumEditor.ValueList := TStringList.Create;
       EnumEditor.ValueList.Text := DBObject.Connection.CollationList.Text;
+      EnumEditor.ValueList.Sort;
       EnumEditor.ValueList.Insert(0, '');
       EditLink := EnumEditor;
       end;
     7: begin
-      DefaultEditor := TColumnDefaultEditorLink.Create(VT);
+      DefaultEditor := TColumnDefaultEditorLink.Create(VT, True);
       DefaultEditor.DefaultType := Col.DefaultType;
       DefaultEditor.DefaultText := Col.DefaultText;
       DefaultEditor.OnUpdateType := Col.OnUpdateType;
@@ -1383,7 +1547,7 @@ begin
       EditLink := DefaultEditor;
     end;
     11: begin // Virtuality pulldown
-      EnumEditor := TEnumEditorLink.Create(VT);
+      EnumEditor := TEnumEditorLink.Create(VT, True);
       EnumEditor.ValueList := TStringList.Create;
       if DBObject.Connection.Parameters.IsMariaDB then
         EnumEditor.ValueList.CommaText := ',VIRTUAL,PERSISTENT'
@@ -1392,7 +1556,7 @@ begin
       EditLink := EnumEditor;
     end
     else begin
-      Edit := TInplaceEditorLink.Create(VT);
+      Edit := TInplaceEditorLink.Create(VT, True);
       Edit.TitleText := VT.Header.Columns[Column].Text;
       Edit.ButtonVisible := True;
       EditLink := Edit;
@@ -1442,7 +1606,7 @@ begin
   TblKey := TTableKey.Create(DBObject.Connection);
   TblKey.Name := _('Index')+' '+IntToStr(FKeys.Count+1);
   TblKey.OldName := TblKey.Name;
-  TblKey.IndexType := KEY;
+  TblKey.IndexType := TTableKey.KEY;
   TblKey.OldIndexType := TblKey.IndexType;
   TblKey.Added := True;
   FKeys.Add(TblKey);
@@ -1483,7 +1647,7 @@ begin
     end;
     if not ColExists then begin
       NewCol := Column.Name;
-      if (TblKey.IndexType <> FKEY) and (Column.DataType.Index in [dtTinyText, dtText, dtMediumText, dtLongText, dtTinyBlob, dtBlob, dtMediumBlob, dtLongBlob]) then
+      if (TblKey.IndexType <> TTableKey.FULLTEXT) and (Column.DataType.Index in [dtTinyText, dtText, dtMediumText, dtLongText, dtTinyBlob, dtBlob, dtMediumBlob, dtLongBlob]) then
         PartLength := '100';
       break;
     end;
@@ -1509,7 +1673,7 @@ begin
     0: begin
       idx := treeIndexes.FocusedNode.Index;
       if not FKeys[idx].Added then
-        DeletedKeys.Add(FKeys[idx].OldName);
+        FDeletedKeys.Add(FKeys[idx].OldName);
       FKeys.Delete(idx);
       // Delete node although ReinitChildren would do the same, but the Repaint before
       // creates AVs in certain cases. See issue #2557
@@ -1543,7 +1707,7 @@ begin
   SelectNode(treeIndexes, nil);
   for TblKey in FKeys do begin
     if not TblKey.Added then
-      DeletedKeys.Add(TblKey.OldName);
+      FDeletedKeys.Add(TblKey.OldName);
   end;
   FKeys.Clear;
   Modification(Sender);
@@ -1579,7 +1743,7 @@ begin
     0: begin
       TblKey := FKeys[Node.Index];
       case Column of
-        0: if TblKey.IndexType = PKEY then
+        0: if TblKey.IndexType = TTableKey.PRIMARY then
              CellText := TblKey.IndexType + ' KEY' // Fixed name "PRIMARY KEY", cannot be changed
            else
              CellText := TblKey.Name;
@@ -1624,7 +1788,7 @@ begin
 end;
 
 
-procedure TfrmTableEditor.treeIndexesClick(Sender: TObject);
+procedure TfrmTableEditor.AnyTreeClick(Sender: TObject);
 var
   VT: TVirtualStringTree;
   Click: THitInfo;
@@ -1654,11 +1818,149 @@ begin
   btnMoveUpIndex.Enabled := HasNode and (Level = 1) and (Node <> treeIndexes.GetFirstChild(Node.Parent));
   btnMoveDownIndex.Enabled := HasNode and (Level = 1) and (Node <> treeIndexes.GetLastChild(Node.Parent));
 
-  menuAddIndexColumn.Enabled := HasNode;
-  menuRemoveIndex.Enabled := btnRemoveIndex.Enabled;
-  menuClearIndexes.Enabled := btnClearIndexes.Enabled;
   menuMoveUpIndex.Enabled := btnMoveUpIndex.Enabled;
   menuMoveDownIndex.Enabled := btnMoveDownIndex.Enabled;
+end;
+
+
+procedure TfrmTableEditor.btnAddCheckConstraintClick(Sender: TObject);
+var
+  CheckConstraint: TCheckConstraint;
+  idx: Integer;
+begin
+  // Add new check constraint
+  CheckConstraint := TCheckConstraint.Create(DBObject.Connection);
+  idx := FCheckConstraints.Add(CheckConstraint);
+  CheckConstraint.Name := 'CC'+IntToStr(idx+1);
+  CheckConstraint.CheckClause := '';
+  CheckConstraint.Added := True;
+  Modification(Sender);
+  listCheckConstraints.Repaint;
+  SelectNode(listCheckConstraints, idx);
+  listCheckConstraints.EditNode(listCheckConstraints.FocusedNode, listCheckConstraints.Header.MainColumn);
+end;
+
+
+procedure TfrmTableEditor.btnRemoveCheckConstraintClick(Sender: TObject);
+var
+  Constraint: TCheckConstraint;
+begin
+  // Remove a foreign key
+  listCheckConstraints.CancelEditNode;
+  Constraint := FCheckConstraints[listCheckConstraints.FocusedNode.Index];
+  if (not Constraint.Added) and (not Constraint.Modified) then
+    FDeletedCheckConstraints.Add(Constraint.Name);
+  FCheckConstraints.Delete(listCheckConstraints.FocusedNode.Index);
+  Modification(Sender);
+  listCheckConstraints.Repaint;
+end;
+
+
+procedure TfrmTableEditor.btnClearCheckConstraintsClick(Sender: TObject);
+var
+  i: Integer;
+begin
+  // Clear all check constraints
+  listCheckConstraints.CancelEditNode;
+  for i:=FCheckConstraints.Count-1 downto 0 do begin
+    if (not FCheckConstraints[i].Added) and (not FCheckConstraints[i].Modified) then
+      FDeletedCheckConstraints.Add(FCheckConstraints[i].Name);
+    FCheckConstraints.Delete(i);
+  end;
+  Modification(Sender);
+  listCheckConstraints.Repaint;
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsBeforePaint(
+  Sender: TBaseVirtualTree; TargetCanvas: TCanvas);
+begin
+  // Set RootNodeCount
+  listCheckConstraints.RootNodeCount := FCheckConstraints.Count;
+  btnClearCheckConstraints.Enabled := listCheckConstraints.RootNodeCount > 0;
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsCreateEditor(
+  Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex;
+  out EditLink: IVTEditLink);
+var
+  VT: TVirtualStringTree;
+  Edit: TInplaceEditorLink;
+  EnumEditor: TEnumEditorLink;
+  i: Integer;
+begin
+  // Edit check constraint
+  VT := Sender as TVirtualStringTree;
+  case Column of
+    0: begin
+      Edit := TInplaceEditorLink.Create(VT, True);
+      Edit.TitleText := VT.Header.Columns[Column].Text;
+      Edit.ButtonVisible := True;
+      EditLink := Edit;
+    end;
+    1: begin
+      EnumEditor := TEnumEditorLink.Create(VT, True);
+      for i:=Low(MySQLFunctions) to High(MySQLFunctions) do
+        EnumEditor.ValueList.Add(MySQLFunctions[i].Name + MySQLFunctions[i].Declaration);
+      EnumEditor.AllowCustomText := True;
+      EditLink := EnumEditor;
+    end;
+  end;
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsFocusChanged(
+  Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex);
+begin
+  // Focus on list changed
+  btnRemoveCheckConstraint.Enabled := Assigned(Node);
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsGetImageIndex(
+  Sender: TBaseVirtualTree; Node: PVirtualNode; Kind: TVTImageKind;
+  Column: TColumnIndex; var Ghosted: Boolean; var ImageIndex: TImageIndex);
+begin
+  // Return image index for node cell in list
+  if not (Kind in [ikNormal, ikSelected]) then Exit;
+  case Column of
+    0: ImageIndex := tabCheckConstraints.ImageIndex;
+    else ImageIndex := -1;
+  end;
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsGetText(Sender: TBaseVirtualTree;
+  Node: PVirtualNode; Column: TColumnIndex; TextType: TVSTTextType;
+  var CellText: string);
+var
+  CheckConstraint: TCheckConstraint;
+begin
+  // Return cell text in list
+  CheckConstraint := FCheckConstraints[Node.Index];
+  case Column of
+    0: CellText := CheckConstraint.Name;
+    1: CellText := CheckConstraint.CheckClause;
+  end;
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsNewText(Sender: TBaseVirtualTree;
+  Node: PVirtualNode; Column: TColumnIndex; NewText: string);
+var
+  Constraint: TCheckConstraint;
+begin
+  // Check constraint edited
+  Constraint := FCheckConstraints[Node.Index];
+  if (not Constraint.Added) and (not Constraint.Modified) then
+    FDeletedCheckConstraints.Add(Constraint.Name);
+  case Column of
+    0: Constraint.Name := NewText;
+    1: Constraint.CheckClause := NewText;
+  end;
+  Constraint.Modified := True;
+  Modification(Sender);
 end;
 
 
@@ -1673,7 +1975,7 @@ begin
   Allowed := False;
   if VT.GetNodeLevel(Node) = 0 then begin
     // Disallow renaming primary key
-    if (Column <> 0) or (VT.Text[Node, 1] <> PKEY) then
+    if (Column <> 0) or (VT.Text[Node, 1] <> TTableKey.PRIMARY) then
       Allowed := True
   end else case Column of
     0: Allowed := True;
@@ -1705,18 +2007,18 @@ begin
   Level := (Sender as TVirtualStringtree).GetNodeLevel(Node);
   if (Level = 0) and (Column = 1) then begin
     // Index type pulldown
-    EnumEditor := TEnumEditorLink.Create(VT);
+    EnumEditor := TEnumEditorLink.Create(VT, True);
     EnumEditor.ValueList := TStringList.Create;
-    EnumEditor.ValueList.CommaText := PKEY +','+ KEY +','+ UKEY +','+ FKEY +','+ SKEY;
+    EnumEditor.ValueList.CommaText := TTableKey.PRIMARY +','+ TTableKey.KEY +','+ TTableKey.UNIQUE +','+ TTableKey.FULLTEXT +','+ TTableKey.SPATIAL;
     EditLink := EnumEditor;
   end else if (Level = 0) and (Column = 2) then begin
     // Algorithm pulldown
-    EnumEditor := TEnumEditorLink.Create(VT);
+    EnumEditor := TEnumEditorLink.Create(VT, True);
     EnumEditor.ValueList := Explode(',', ',BTREE,HASH,RTREE');
     EditLink := EnumEditor;
   end else if (Level = 1) and (Column = 0) then begin
     // Column names pulldown
-    EnumEditor := TEnumEditorLink.Create(VT);
+    EnumEditor := TEnumEditorLink.Create(VT, True);
     ColNode := listColumns.GetFirst;
     while Assigned(ColNode) do begin
       Col := listColumns.GetNodeData(ColNode);
@@ -1726,7 +2028,7 @@ begin
     EnumEditor.AllowCustomText := True; // Allows adding a subpart in index parts: "TextCol(20)"
     EditLink := EnumEditor;
   end else
-    EditLink := TInplaceEditorLink.Create(VT);
+    EditLink := TInplaceEditorLink.Create(VT, True);
 end;
 
 
@@ -1746,8 +2048,8 @@ begin
          0: TblKey.Name := NewText;
          1: begin
              TblKey.IndexType := NewText;
-             if NewText = PKEY then
-               TblKey.Name := PKEY;
+             if NewText = TTableKey.PRIMARY then
+               TblKey.Name := TTableKey.PRIMARY;
            end;
          2: TblKey.Algorithm := NewText;
        end;
@@ -1782,7 +2084,7 @@ procedure TfrmTableEditor.treeIndexesBeforePaint(Sender: TBaseVirtualTree;
   TargetCanvas: TCanvas);
 begin
   // (Re)paint index list
-  (Sender as TVirtualStringTree).RootNodeCount := FKeys.Count;
+  treeIndexes.RootNodeCount := FKeys.Count;
 end;
 
 
@@ -1790,16 +2092,20 @@ procedure TfrmTableEditor.treeIndexesDragOver(Sender: TBaseVirtualTree;
   Source: TObject; Shift: TShiftState; State: TDragState; Pt: TPoint;
   Mode: TDropMode; var Effect: Integer; var Accept: Boolean);
 var
-  Node: PVirtualNode;
+  TargetNode: PVirtualNode;
+  VT: TVirtualStringtree;
 begin
   // Accept nodes from the column list and allow column moving
+  VT := Sender as TVirtualStringtree;
+  TargetNode := VT.GetNodeAt(Pt.X, Pt.Y);
+
   if Source = listColumns then begin
-    Accept := True;
-    Exit;
+    // Do not accept above or below a root level (index) node
+    Accept := (VT.GetNodeLevel(TargetNode) = 1) or (Mode = dmOnNode);
+
   end else if Source = Sender then begin
-    Node := Sender.GetNodeAt(Pt.X, Pt.Y);
-    Accept := Assigned(Node) and (Sender.GetNodeLevel(Node) = 1) and
-      (Node <> Sender.FocusedNode) and (Node.Parent = Sender.FocusedNode.Parent);
+    Accept := Assigned(TargetNode) and (Sender.GetNodeLevel(TargetNode) = 1) and
+      (TargetNode <> Sender.FocusedNode) and (TargetNode.Parent = Sender.FocusedNode.Parent);
   end;
 end;
 
@@ -1820,25 +2126,40 @@ begin
   SourceVT := Source as TVirtualStringtree;
   TargetNode := VT.GetNodeAt(Pt.X, Pt.Y);
   FocusedNode := VT.FocusedNode;
+  IndexNode := nil;
+  ColPos := 0;
   if not Assigned(TargetNode) then begin
     MessageBeep(MB_ICONEXCLAMATION);
     Exit;
   end;
-  if VT.GetNodeLevel(TargetNode) = 1 then begin
-    IndexNode := TargetNode.Parent;
-    // Find the right new position for the dropped column
-    ColPos := TargetNode.Index;
-    Mainform.LogSQL('TargetNode.Index: '+TargetNode.Index.ToString, lcDebug);
-    if (Source = Sender) and (FocusedNode <> nil) then begin
-      // Take care if user dragged from above or from below the target node
-      if (FocusedNode.Index < TargetNode.Index) and (Mode = dmAbove) and (ColPos > 0) then
-        Dec(ColPos);
-      if (FocusedNode.Index > TargetNode.Index) and (Mode = dmBelow) and (ColPos < IndexNode.ChildCount-1) then
-        Inc(ColPos);
+  Mainform.LogSQL('TargetNode.Index: '+TargetNode.Index.ToString, lcDebug);
+
+  case VT.GetNodeLevel(TargetNode) of
+    0: begin
+      // DragOver only accepts dmOnNode in root tree level
+      IndexNode := TargetNode;
+      ColPos := IndexNode.ChildCount;
     end;
-  end else begin
-    IndexNode := TargetNode;
-    ColPos := IndexNode.ChildCount;
+
+    1: begin
+      IndexNode := TargetNode.Parent;
+      // Find the right new position for the dropped column
+      ColPos := TargetNode.Index;
+      if Source = Sender then begin
+        // Drop within index tree: Take care if user dragged from above or from below the target node
+        if FocusedNode <> nil then begin
+          if (FocusedNode.Index < TargetNode.Index) and (Mode = dmAbove) and (ColPos > 0) then
+            Dec(ColPos);
+          if (FocusedNode.Index > TargetNode.Index) and (Mode = dmBelow) and (ColPos < IndexNode.ChildCount-1) then
+            Inc(ColPos);
+        end;
+      end else begin
+        // Drop from columns list
+        if Mode = dmBelow then
+          Inc(ColPos);
+      end;
+    end;
+
   end;
 
   if Source = Sender then
@@ -1856,7 +2177,7 @@ begin
 
     TblKey.Columns.Insert(ColPos, ColName);
     PartLength := '';
-    if (TblKey.IndexType <> FKEY) and (Col.DataType.Index in [dtTinyText, dtText, dtMediumText, dtLongText, dtTinyBlob, dtBlob, dtMediumBlob, dtLongBlob]) then
+    if (TblKey.IndexType <> TTableKey.FULLTEXT) and (Col.DataType.Index in [dtTinyText, dtText, dtMediumText, dtLongText, dtTinyBlob, dtBlob, dtMediumBlob, dtLongBlob]) then
       PartLength := '100';
     TblKey.Subparts.Insert(ColPos, PartLength);
     IndexNode.States := IndexNode.States + [vsHasChildren, vsExpanded];
@@ -1905,6 +2226,7 @@ procedure TfrmTableEditor.PageControlMainChange(Sender: TObject);
 begin
   treeIndexes.EndEditNode;
   listForeignKeys.EndEditNode;
+  listCheckConstraints.EndEditNode;
   // Ensure SynMemo's have focus, otherwise Select-All and Copy actions may fail
   if PageControlMain.ActivePage = tabCREATEcode then begin
     if SynMemoCreateCode.CanFocus then
@@ -1984,9 +2306,9 @@ begin
   // Auto create submenu items for "Add to index" ...
   PrimaryKeyExists := False;
   for i:=0 to FKeys.Count-1 do begin
-    if FKeys[i].IndexType = PKEY then begin
+    if FKeys[i].IndexType = TTableKey.PRIMARY then begin
       PrimaryKeyExists := True;
-      IndexName := PKEY;
+      IndexName := TTableKey.PRIMARY;
     end else
       IndexName := FKeys[i].Name + ' ('+FKeys[i].IndexType+')';
     Item := AddItem(menuAddToIndex, IndexName, FKeys[i].ImageIndex);
@@ -2006,12 +2328,75 @@ begin
   menuAddToIndex.Enabled := menuAddToIndex.Count > 0;
 
   // ... and for item "Create index"
-  Item := AddItem(menuCreateIndex, PKEY, ICONINDEX_PRIMARYKEY);
+  Item := AddItem(menuCreateIndex, TTableKey.PRIMARY, ICONINDEX_PRIMARYKEY);
   Item.Enabled := not PrimaryKeyExists;
-  AddItem(menuCreateIndex, KEY, ICONINDEX_INDEXKEY);
-  AddItem(menuCreateIndex, UKEY, ICONINDEX_UNIQUEKEY);
-  AddItem(menuCreateIndex, FKEY, ICONINDEX_FULLTEXTKEY);
-  AddItem(menuCreateIndex, SKEY, ICONINDEX_SPATIALKEY);
+  AddItem(menuCreateIndex, TTableKey.KEY, ICONINDEX_INDEXKEY);
+  AddItem(menuCreateIndex, TTableKey.UNIQUE, ICONINDEX_UNIQUEKEY);
+  AddItem(menuCreateIndex, TTableKey.FULLTEXT, ICONINDEX_FULLTEXTKEY);
+  AddItem(menuCreateIndex, TTableKey.SPATIAL, ICONINDEX_SPATIALKEY);
+end;
+
+
+procedure TfrmTableEditor.menuAddPropertyClick(Sender: TObject);
+var
+  Comp: TComponent;
+begin
+  Comp := PopupComponent(Sender);
+  if Comp = treeIndexes then
+    btnAddIndex.OnClick(Sender)
+  else if Comp = listForeignKeys then
+    btnAddForeignKey.OnClick(Sender)
+  else if Comp = listCheckConstraints then
+    btnAddCheckConstraint.OnClick(Sender);
+end;
+
+
+procedure TfrmTableEditor.menuRemovePropertyClick(Sender: TObject);
+var
+  Comp: TComponent;
+begin
+  Comp := PopupComponent(Sender);
+  if Comp = treeIndexes then
+    btnRemoveIndex.OnClick(Sender)
+  else if Comp = listForeignKeys then
+    btnRemoveForeignKey.OnClick(Sender)
+  else if Comp = listCheckConstraints then
+    btnRemoveCheckConstraint.OnClick(Sender);
+end;
+
+
+procedure TfrmTableEditor.menuClearPropertiesClick(Sender: TObject);
+var
+  Comp: TComponent;
+begin
+  Comp := PopupComponent(Sender);
+  if Comp = treeIndexes then
+    btnClearIndexes.OnClick(Sender)
+  else if Comp = listForeignKeys then
+    btnClearForeignKeys.OnClick(Sender)
+  else if Comp = listCheckConstraints then
+    btnClearCheckConstraints.OnClick(Sender);
+end;
+
+
+procedure TfrmTableEditor.popupPropertiesPopup(Sender: TObject);
+var
+  Comp: TComponent;
+begin
+  Comp := PopupComponent(Sender);
+  if Comp = treeIndexes then begin
+    menuRemoveProperty.Enabled := btnRemoveIndex.Enabled;
+    menuClearProperties.Enabled := btnClearIndexes.Enabled;
+    menuAddIndexColumn.Enabled := Assigned(treeIndexes.FocusedNode);
+  end else if Comp = listForeignKeys then begin
+    menuRemoveProperty.Enabled := btnRemoveForeignKey.Enabled;
+    menuClearProperties.Enabled := btnClearForeignKeys.Enabled;
+    menuAddIndexColumn.Enabled := False;
+  end else if Comp = listCheckConstraints then begin
+    menuRemoveProperty.Enabled := btnRemoveCheckConstraint.Enabled;
+    menuClearProperties.Enabled := btnClearCheckConstraints.Enabled;
+    menuAddIndexColumn.Enabled := False;
+  end;
 end;
 
 
@@ -2102,7 +2487,7 @@ begin
     listForeignKeys.CancelEditNode;
   Key := FForeignKeys[listForeignKeys.FocusedNode.Index];
   if not Key.Added then
-    DeletedForeignKeys.Add(Key.OldKeyName);
+    FDeletedForeignKeys.Add(Key.OldKeyName);
   FForeignKeys.Delete(listForeignKeys.FocusedNode.Index);
   Modification(Sender);
   listForeignKeys.Repaint;
@@ -2118,7 +2503,7 @@ begin
     listForeignKeys.CancelEditNode;
   for i:=FForeignKeys.Count-1 downto 0 do begin
     if not FForeignKeys[i].Added then
-      DeletedForeignKeys.Add(FForeignKeys[i].OldKeyName);
+      FDeletedForeignKeys.Add(FForeignKeys[i].OldKeyName);
     FForeignKeys.Delete(i);
   end;
   Modification(Sender);
@@ -2127,13 +2512,10 @@ end;
 
 
 procedure TfrmTableEditor.listForeignKeysBeforePaint(Sender: TBaseVirtualTree; TargetCanvas: TCanvas);
-var
-  VT: TVirtualStringTree;
 begin
   // Set RootNodeCount
-  VT := Sender as TVirtualStringTree;
-  VT.RootNodeCount := FForeignKeys.Count;
-  btnClearForeignKeys.Enabled := VT.RootNodeCount > 0;
+  listForeignKeys.RootNodeCount := FForeignKeys.Count;
+  btnClearForeignKeys.Enabled := listForeignKeys.RootNodeCount > 0;
 end;
 
 
@@ -2141,6 +2523,7 @@ procedure TfrmTableEditor.listForeignKeysEditing(Sender: TBaseVirtualTree; Node:
   Column: TColumnIndex; var Allowed: Boolean);
 var
   Key: TForeignKey;
+  ExistsQuery: String;
 begin
   // Disallow editing foreign columns when no reference table was selected.
   // Also, check for existance of reference table and warn if it's missing.
@@ -2151,7 +2534,11 @@ begin
       ErrorDialog(_('Please select a reference table before selecting foreign columns.'))
     else begin
       try
-        DBObject.Connection.GetVar('SELECT 1 FROM '+DBObject.Connection.QuoteIdent(Key.ReferenceTable, True, '.')+' LIMIT 1');
+        ExistsQuery := DBObject.Connection.ApplyLimitClause(
+          'SELECT',
+          '1 FROM '+DBObject.Connection.QuoteIdent(Key.ReferenceTable, True, '.'),
+          1, 0);
+        DBObject.Connection.GetVar(ExistsQuery);
         Allowed := True;
       except
         // Leave Allowed = False
@@ -2173,41 +2560,49 @@ var
   DBObjects: TDBObjectList;
   Key: TForeignKey;
   ColNode: PVirtualNode;
-  Col: PTableColumn;
+  PCol: PTableColumn;
+  Col: TTableColumn;
   Obj: TDBObject;
+  Columns: TTableColumnList;
 begin
   // Init grid editor in foreign key list
   VT := Sender as TVirtualStringTree;
   case Column of
-    0: EditLink := TInplaceEditorLink.Create(VT);
+    0: EditLink := TInplaceEditorLink.Create(VT, True);
     1: begin
-        SetEditor := TSetEditorLink.Create(VT);
+        SetEditor := TSetEditorLink.Create(VT, True);
         ColNode := listColumns.GetFirst;
         while Assigned(ColNode) do begin
-          Col := listColumns.GetNodeData(ColNode);
-          SetEditor.ValueList.Add(Col.Name);
+          PCol := listColumns.GetNodeData(ColNode);
+          SetEditor.ValueList.Add(PCol.Name);
           ColNode := listColumns.GetNextSibling(ColNode);
         end;
         EditLink := SetEditor;
       end;
     2: begin
-        EnumEditor := TEnumEditorLink.Create(VT);
+        EnumEditor := TEnumEditorLink.Create(VT, True);
         EnumEditor.AllowCustomText := True;
         DBObjects := DBObject.Connection.GetDBObjects(DBObject.Connection.Database);
         for Obj in DBObjects do begin
-          if (Obj.NodeType = lntTable) and (LowerCase(Obj.Engine) = 'innodb') then
+          if (Obj.NodeType = lntTable) then
             EnumEditor.ValueList.Add(Obj.Name);
         end;
         EditLink := EnumEditor;
       end;
     3: begin
         Key := FForeignKeys[Node.Index];
-        SetEditor := TSetEditorLink.Create(VT);
-        SetEditor.ValueList := DBObject.Connection.GetCol('SHOW COLUMNS FROM '+DBObject.Connection.QuoteIdent(Key.ReferenceTable, True, '.'));
+        SetEditor := TSetEditorLink.Create(VT, True);
+        Obj := Key.ReferenceTableObj;
+        if Obj <> nil then begin
+          Columns := Obj.TableColumns;
+          for Col in Columns do begin
+            SetEditor.ValueList.Add(Col.Name);
+          end;
+        end;
         EditLink := SetEditor;
       end;
     4, 5: begin
-        EnumEditor := TEnumEditorLink.Create(VT);
+        EnumEditor := TEnumEditorLink.Create(VT, True);
         EnumEditor.ValueList.Text := 'RESTRICT'+CRLF+'CASCADE'+CRLF+'SET NULL'+CRLF+'NO ACTION';
         EditLink := EnumEditor;
       end;
@@ -2270,7 +2665,7 @@ var
   Key, OtherKey: TForeignKey;
   i, j, k: Integer;
   NameInUse: Boolean;
-  RefCreateCode, RefDatabase, RefTable: String;
+  RefDatabase, RefTable: String;
   KeyColumnsSQLCode, RefColumnsSQLCode: String;
   Err: String;
   RefColumns: TTableColumnList;
@@ -2325,9 +2720,7 @@ begin
         RefObj.Name := RefTable;
         RefObj.Database := RefDatabase;
         RefObj.NodeType := lntTable;
-        RefCreateCode := DBObject.Connection.GetCreateCode(RefObj);
-        RefColumns := TTableColumnList.Create(True);
-        DBObject.Connection.ParseTableStructure(RefCreateCode, RefColumns, nil, nil);
+        RefColumns := RefObj.TableColumns;
         TypesMatch := True;
         KeyColumnsSQLCode := '';
         RefColumnsSQLCode := '';
@@ -2372,47 +2765,71 @@ procedure TfrmTableEditor.menuCopyColumnsClick(Sender: TObject);
 var
   Node: PVirtualNode;
   Col: PTableColumn;
-  SQL: String;
+  Cols: TStringList;
 begin
-  // Copy selected columns as a CREATE TABLE query to clipboard
+  // Copy selected columns in a text format to clipboard
   Node := GetNextNode(listColumns, nil, True);
-  SQL := 'CREATE TABLE dummy ('+CRLF;
+  Cols := TStringList.Create;
   while Assigned(Node) do begin
     Col := listColumns.GetNodeData(Node);
-    SQL := SQL + #9 + Col.SQLCode + ','+CRLF;
+    Cols.Add(Col.Serialize);
     Node := GetNextNode(listColumns, Node, True);
   end;
-  Delete(SQL, Length(SQL)-2, 3);
-  SQL := SQL + CRLF + ')';
-  Clipboard.AsText := SQL;
+  Clipboard.AsText := Cols.Text;
+  Cols.Free;
 end;
 
 
 procedure TfrmTableEditor.menuPasteColumnsClick(Sender: TObject);
 var
-  Columns: TTableColumnList;
   Node: PVirtualNode;
   Col: TTableColumn;
+  ColsFromClp: TStringList;
+  ColSerialized: String;
 begin
-  Columns := TTableColumnList.Create(False);
-  DBObject.Connection.ParseTableStructure(Clipboard.AsText, Columns, nil, nil);
+  // Complement to "copy columns"
+  ColsFromClp := TStringList.Create;
+  ColsFromClp.Text := Clipboard.AsText;
   Node := listColumns.FocusedNode;
   if not Assigned(Node) then
     Node := listColumns.GetLast;
   listcolumns.BeginUpdate;
   try
-    for Col in Columns do begin
-      Col.Status := esAddedUntouched;
-      // Create new node, insert column structure into list, and let OnInitNode bind its pointer
-      Node := listColumns.InsertNode(Node, amInsertAfter, nil);
-      FColumns.Insert(Node.Index, Col);
+    for ColSerialized in ColsFromClp do begin
+      try
+        Col := TTableColumn.Create(DBObject.Connection, ColSerialized);
+        Col.Status := esAddedUntouched;
+        // Create new node, insert column structure into list, and let OnInitNode bind its pointer
+        Node := listColumns.InsertNode(Node, amInsertAfter, nil);
+        FColumns.Insert(Node.Index, Col);
+      except
+        on E:Exception do begin
+          MainForm.LogSQL(E.ClassName+' exception when creating column from text: "'+ColSerialized+'"', lcError);
+        end;
+      end;
     end;
   finally
     listcolumns.EndUpdate;
   end;
   listColumns.Invalidate;
   Modification(Sender);
-  Columns.Free;
+  ColsFromClp.Free;
+end;
+
+
+procedure TfrmTableEditor.AnyTreeStructureChange(Sender: TBaseVirtualTree;
+  Node: PVirtualNode; Reason: TChangeReason);
+begin
+  UpdateTabCaptions;
+end;
+
+
+procedure TfrmTableEditor.UpdateTabCaptions;
+begin
+  // Append number of listed keys (or whatever) to the tab caption
+  tabIndexes.Caption := _('Indexes') + ' (' + FKeys.Count.ToString + ')';
+  tabForeignKeys.Caption := _('Foreign keys') + ' (' + FForeignKeys.Count.ToString + ')';
+  tabCheckConstraints.Caption := _('Check constraints') + ' (' + FCheckConstraints.Count.ToString + ')';
 end;
 
 

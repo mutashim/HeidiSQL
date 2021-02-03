@@ -8,7 +8,11 @@ object frmSearchReplace: TfrmSearchReplace
   Color = clBtnFace
   Constraints.MinHeight = 320
   Constraints.MinWidth = 400
-  ParentFont = True
+  Font.Charset = DEFAULT_CHARSET
+  Font.Color = clWindowText
+  Font.Height = -11
+  Font.Name = 'Tahoma'
+  Font.Style = []
   OldCreateOrder = False
   Position = poOwnerFormCenter
   OnCreate = FormCreate
@@ -30,12 +34,11 @@ object frmSearchReplace: TfrmSearchReplace
   object lblReplaceHint: TLabel
     Left = 90
     Top = 87
-    Width = 288
-    Height = 26
+    Width = 259
+    Height = 13
     Anchors = [akLeft, akTop, akRight]
     Caption = 'Replacement can have \n for new lines and \t for tabs'
     Enabled = False
-    WordWrap = True
   end
   object lblSearchIn: TLabel
     Left = 8
@@ -45,25 +48,25 @@ object frmSearchReplace: TfrmSearchReplace
     Caption = 'Search in:'
   end
   object btnCancel: TButton
-    Left = 351
+    Left = 327
     Top = 278
-    Width = 75
+    Width = 100
     Height = 25
     Anchors = [akRight, akBottom]
     Cancel = True
     Caption = 'Cancel'
     ModalResult = 2
-    TabOrder = 10
+    TabOrder = 12
   end
   object btnReplaceAll: TButton
-    Left = 270
+    Left = 221
     Top = 278
-    Width = 75
+    Width = 100
     Height = 25
     Anchors = [akRight, akBottom]
     Caption = 'Replace &all'
     ModalResult = 12
-    TabOrder = 9
+    TabOrder = 11
     OnClick = DoSearchReplace
   end
   object chkReplace: TCheckBox
@@ -72,13 +75,13 @@ object frmSearchReplace: TfrmSearchReplace
     Width = 73
     Height = 17
     Caption = '&Replace:'
-    TabOrder = 2
+    TabOrder = 3
     OnClick = chkReplaceClick
   end
   object comboSearch: TComboBox
     Left = 90
     Top = 37
-    Width = 336
+    Width = 305
     Height = 21
     Anchors = [akLeft, akTop, akRight]
     TabOrder = 1
@@ -89,11 +92,11 @@ object frmSearchReplace: TfrmSearchReplace
   object comboReplace: TComboBox
     Left = 90
     Top = 62
-    Width = 336
+    Width = 305
     Height = 21
     Anchors = [akLeft, akTop, akRight]
     Enabled = False
-    TabOrder = 3
+    TabOrder = 4
     Text = 'comboReplace'
     TextHint = 'Enter replacement pattern ...'
     OnExit = comboSearchReplaceExit
@@ -105,7 +108,7 @@ object frmSearchReplace: TfrmSearchReplace
     Height = 69
     Anchors = [akLeft, akTop, akRight]
     Caption = '&Options'
-    TabOrder = 4
+    TabOrder = 6
     object chkCaseSensitive: TCheckBox
       Left = 12
       Top = 18
@@ -153,7 +156,7 @@ object frmSearchReplace: TfrmSearchReplace
     Items.Strings = (
       '&Forward'
       '&Backward')
-    TabOrder = 5
+    TabOrder = 7
   end
   object grpOrigin: TRadioGroup
     Left = 134
@@ -166,7 +169,7 @@ object frmSearchReplace: TfrmSearchReplace
     Items.Strings = (
       'From cursor'
       'Entire scope')
-    TabOrder = 6
+    TabOrder = 8
   end
   object grpScope: TRadioGroup
     Left = 260
@@ -179,18 +182,18 @@ object frmSearchReplace: TfrmSearchReplace
     Items.Strings = (
       'Global'
       'Selection')
-    TabOrder = 7
+    TabOrder = 9
   end
   object btnOK: TButton
-    Left = 189
+    Left = 115
     Top = 278
-    Width = 75
+    Width = 100
     Height = 25
     Anchors = [akRight, akBottom]
     Caption = 'OK'
     Default = True
     ModalResult = 1
-    TabOrder = 8
+    TabOrder = 10
     OnClick = DoSearchReplace
   end
   object comboSearchIn: TComboBox
@@ -202,6 +205,29 @@ object frmSearchReplace: TfrmSearchReplace
     Anchors = [akLeft, akTop, akRight]
     TabOrder = 0
   end
+  object btnSearchHints: TButton
+    Left = 401
+    Top = 35
+    Width = 25
+    Height = 25
+    Anchors = [akTop, akRight]
+    Caption = #9207
+    DropDownMenu = popupSearchHints
+    TabOrder = 2
+    OnClick = btnWithDropDownClick
+  end
+  object btnReplaceHints: TButton
+    Left = 401
+    Top = 60
+    Width = 25
+    Height = 25
+    Anchors = [akTop, akRight]
+    Caption = #9207
+    DropDownMenu = popupReplaceHints
+    Enabled = False
+    TabOrder = 5
+    OnClick = btnWithDropDownClick
+  end
   object SynEditSearch1: TSynEditSearch
     Left = 24
     Top = 248
@@ -209,5 +235,13 @@ object frmSearchReplace: TfrmSearchReplace
   object SynEditRegexSearch1: TSynEditRegexSearch
     Left = 120
     Top = 248
+  end
+  object popupSearchHints: TPopupMenu
+    Left = 328
+    Top = 24
+  end
+  object popupReplaceHints: TPopupMenu
+    Left = 328
+    Top = 72
   end
 end

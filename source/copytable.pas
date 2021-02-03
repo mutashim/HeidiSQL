@@ -5,10 +5,10 @@ interface
 
 uses
   Windows, SysUtils, Classes, Graphics, Controls, Forms, Dialogs, StdCtrls, extra_controls,
-  dbconnection, VirtualTrees, SynEdit, SynMemo, Menus, gnugettext;
+  dbconnection, dbstructures, VirtualTrees, SynEdit, SynMemo, Menus, gnugettext;
 
 type
-  TCopyTableForm = class(TFormWithSizeGrip)
+  TCopyTableForm = class(TExtForm)
     editNewTablename: TEdit;
     lblNewTablename: TLabel;
     btnCancel: TButton;
@@ -67,15 +67,11 @@ const
 
 procedure TCopyTableForm.FormCreate(Sender: TObject);
 begin
-  TranslateComponent(Self);
-  FixDropDownButtons(Self);
+  HasSizeGrip := True;
   Width := AppSettings.ReadInt(asCopyTableWindowWidth);
   Height := AppSettings.ReadInt(asCopyTableWindowHeight);
   MainForm.SetupSynEditors;
   FixVT(TreeElements);
-  FColumns := TTableColumnList.Create;
-  FKeys := TTableKeyList.Create;
-  FForeignKeys := TForeignKeyList.Create;
 end;
 
 
@@ -104,7 +100,6 @@ end;
 procedure TCopyTableForm.FormShow(Sender: TObject);
 var
   Filter: String;
-  Dummy: String;
   Obj: PDBObject;
   i: Integer;
   Item: TMenuItem;
@@ -130,12 +125,12 @@ begin
     comboDatabase.ItemIndex := 0;
 
   // Fetch columns and key structures from table or view
-  FColumns.Clear;
-  FKeys.Clear;
-  FForeignKeys.Clear;
   case FDBObj.NodeType of
-    lntTable: FConnection.ParseTableStructure(FDBObj.CreateCode, FColumns, FKeys, FForeignKeys);
-    lntView: FConnection.ParseViewStructure(FDBObj.CreateCode, FDBObj, FColumns, Dummy, Dummy, Dummy, Dummy, Dummy);
+    lntTable, lntView: begin
+      FColumns := FDBObj.TableColumns;
+      FKeys := FDBObj.TableKeys;
+      FForeignKeys := FDBObj.TableForeignKeys;
+    end;
     else raise Exception.CreateFmt(_('Neither table nor view: %s'), [FDBObj.Name]);
   end;
 
@@ -147,10 +142,10 @@ begin
   popupRecentFilters.Items.Clear;
   for i:=1 to 20 do begin
     Filter := AppSettings.ReadString(asCopyTableRecentFilter, IntToStr(i));
-    if IsEmpty(Filter) then
+    if Filter.IsEmpty then
       Continue;
     Item := TMenuItem.Create(popupRecentFilters);
-    Item.Caption := IntToStr(i) + '  ' + sstr(Filter, 100);
+    Item.Caption := IntToStr(i) + '  ' + StrEllipsis(Filter, 100);
     Item.Hint := Filter;
     Item.OnClick := RecentFilterClick;
     popupRecentFilters.Items.Add(Item);
@@ -188,7 +183,7 @@ begin
     NewValues.Add(MemoFilter.Text);
     for i:=1 to 20 do begin
       Filter := AppSettings.ReadString(asCopyTableRecentFilter, IntToStr(i));
-      if IsEmpty(Filter) then
+      if Filter.IsEmpty then
         Continue;
       if NewValues.IndexOf(Filter) = -1 then
         NewValues.Add(Filter);
@@ -255,7 +250,7 @@ begin
          nColumns:      CellText := _('Columns');
          nKeys:         CellText := _('Indexes');
          nForeignKeys:  CellText := _('Foreign keys');
-         nData:         CellText := f_('Data (%s rows)', [FormatNumber(FDBObj.Rows)]);
+         nData:         CellText := f_('Data (%s rows)', [FormatNumber(FDBObj.RowCount(False))]);
          else raise Exception.Create(_(SUnhandledNodeIndex));
        end;
        if Node.Index <> nData then begin
@@ -315,7 +310,7 @@ begin
       end;
       if ChildCount > 0 then
         Include(InitialStates, ivsHasChildren);
-      if (ChildCount = 0) or ((Node.Index = nData) and (FDBObj.Rows = 0)) then
+      if (ChildCount = 0) or ((Node.Index = nData) and (FDBObj.RowCount(False) = 0)) then
         Node.States := Node.States + [vsDisabled]
       else if AppSettings.ReadBool(Option) then
         Node.CheckState := csCheckedNormal;
@@ -376,11 +371,12 @@ begin
   TargetTable := FConnection.QuotedDbAndTableName(comboDatabase.Text, editNewTablename.Text);
 
   // Watch out if target table exists
-  TableExistence := FConnection.GetVar('SELECT '+FConnection.QuoteIdent('table_name')+
-    ' FROM '+FConnection.QuoteIdent('information_schema')+'.'+FConnection.QuoteIdent('tables')+
-    ' WHERE '+FConnection.QuoteIdent(FConnection.GetSQLSpecifity(spISTableSchemaCol))+'='+FConnection.EscapeString(comboDatabase.Text)+
-    ' AND '+FConnection.QuoteIdent('table_name')+'='+FConnection.EscapeString(editNewTablename.Text)
-    );
+  try
+    TableExistence := FConnection.GetVar('SELECT 1 FROM '+
+      FConnection.QuoteIdent(comboDatabase.Text)+'.'+FConnection.QuoteIdent(editNewTablename.Text));
+  except
+    TableExistence := '';
+  end;
   if TableExistence <> '' then begin
     if MessageDialog(_('Target table exists. Drop it and overwrite?'), mtConfirmation, [mbYes, mbCancel]) = mrCancel then begin
       ModalResult := mrNone;
@@ -495,7 +491,7 @@ begin
     else
       FConnection.ClearDbObjects(comboDatabase.Text);
   except
-    on E:EDatabaseError do begin
+    on E:EDbError do begin
       Screen.Cursor := crDefault;
       Msg := E.Message;
       if FConnection.LastErrorCode = 1075 then

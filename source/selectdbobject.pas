@@ -7,7 +7,7 @@ uses
   dbconnection, gnugettext;
 
 type
-  TfrmSelectDBObject = class(TFormWithSizeGrip)
+  TfrmSelectDBObject = class(TExtForm)
     TreeDBO: TVirtualStringTree;
     btnOK: TButton;
     btnCancel: TButton;
@@ -31,6 +31,9 @@ type
     procedure TreeDBOInitNode(Sender: TBaseVirtualTree; ParentNode, Node:
         PVirtualNode; var InitialStates: TVirtualNodeInitStates);
     procedure ValidateControls(Sender: TObject);
+    procedure TreeDBOPaintText(Sender: TBaseVirtualTree;
+      const TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
+      TextType: TVSTTextType);
   private
     { Private declarations }
     FConnection: TDBConnection;
@@ -62,7 +65,7 @@ end;
 
 procedure TfrmSelectDBObject.FormCreate(Sender: TObject);
 begin
-  TranslateComponent(Self);
+  HasSizeGrip := True;
   Width := AppSettings.ReadInt(asSelectDBOWindowWidth);
   Height := AppSettings.ReadInt(asSelectDBOWindowHeight);
   TreeDBO.TreeOptions := MainForm.DBtree.TreeOptions;
@@ -122,7 +125,7 @@ begin
       Obj.Assign(DBObj^);
       // Database privileges can be wildcarded. Tables/columns not so.
       if Obj.NodeType = lntDb then
-        Obj.Database := esc(Obj.Database, True, False);
+        Obj.Database := FConnection.EscapeString(Obj.Database, True, False);
       if Obj.NodeType = lntNone then begin
         Obj.NodeType := lntDb;
         Obj.Database := '%';
@@ -145,9 +148,9 @@ begin
   if Assigned(Node) then begin
     case Sender.GetNodeLevel(Node) of
       0: editDb.Text := '%';
-      1: editDb.Text := esc(Tree.Text[Node, 0], True, False);
-      2: editDb.Text := esc(Tree.Text[Node.Parent, 0], True, False);
-      3: editDb.Text := esc(Tree.Text[Node.Parent.Parent, 0], True, False);
+      1: editDb.Text := FConnection.EscapeString(Tree.Text[Node, 0], True, False);
+      2: editDb.Text := FConnection.EscapeString(Tree.Text[Node.Parent, 0], True, False);
+      3: editDb.Text := FConnection.EscapeString(Tree.Text[Node.Parent.Parent, 0], True, False);
     end;
   end;
   // Indicate automatic changes only
@@ -199,6 +202,13 @@ begin
     Exclude(InitialStates, ivsHasChildren);
   end else if DBObj.NodeType = lntNone then
     Include(InitialStates, ivsExpanded);
+end;
+
+procedure TfrmSelectDBObject.TreeDBOPaintText(Sender: TBaseVirtualTree;
+  const TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
+  TextType: TVSTTextType);
+begin
+  MainForm.DBtreePaintText(Sender, TargetCanvas, Node, Column, TextType);
 end;
 
 end.

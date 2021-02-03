@@ -15,7 +15,7 @@
 // The Original Code is uSysStyleHook.pas.
 //
 // Portions created by Mahdi Safsafi [SMP3]   e-mail SMP@LIVE.FR
-// Portions created by Rodrigo Ruz V. are Copyright (C) 2013-2015 Rodrigo Ruz V.
+// Portions created by Rodrigo Ruz V. are Copyright (C) 2013-2020 Rodrigo Ruz V.
 // All Rights Reserved.
 //
 // **************************************************************************************************
@@ -263,6 +263,7 @@ implementation
 
 uses
   System.UITypes,
+  Vcl.Styles.Utils.Misc,
   Vcl.Styles.Utils.SysControls;
 
 // ------------------------------------------------------------------------------
@@ -285,8 +286,8 @@ begin
   FFont := nil;
   FParent := nil;
   Handle := AHandle;
-  FWindowClassName:='';
-  FDestroyed:=False;
+  FWindowClassName := '';
+  FDestroyed := False;
 end;
 
 destructor TSysControl.Destroy;
@@ -429,7 +430,7 @@ begin
   if FFont <> nil then
     Exit(FFont);
 
-  hFont := SendMessage(Handle, WM_GETFONT, 0, 0);
+  hFont := HGDIOBJ(SendMessage(Handle, WM_GETFONT, 0, 0));
   Result := TFont.Create;
   FillChar(LogFont, SizeOf(LogFont), 0);
   GetObject(hFont, SizeOf(LogFont), @LogFont);
@@ -576,7 +577,14 @@ end;
 
 function TSysStyleHook.CallDefaultProc(var Msg: TMessage): LRESULT;
 begin
-  Result := CallWindowProc(Pointer(FOrgWndProc), Handle, Msg.Msg, Msg.wParam, Msg.lParam);
+  Result := 0;
+  try
+    if (FOrgWndProc <> 0) then
+      Result := CallWindowProc(Pointer(FOrgWndProc), Handle, Msg.Msg, Msg.wParam, Msg.lParam);
+  except
+    on e : exception do
+      OutputDebugString(PWideChar('CallDefaultProc error : ' + e.message + chr(0)));
+  end;
 end;
 
 procedure TSysStyleHook.DrawBorder(Canvas: TCanvas);
