@@ -20,7 +20,7 @@ uses
   JumpList, System.Actions, System.UITypes, pngimage,
   System.ImageList, Vcl.Styles.UxTheme, Vcl.Styles.Utils.Menus, Vcl.Styles.Utils.Forms,
   Vcl.VirtualImageList, Vcl.BaseImageCollection, Vcl.ImageCollection, System.IniFiles, extra_controls,
-  SynEditCodeFolding;
+  SynEditCodeFolding, texteditor, System.Character, generic_types;
 
 
 type
@@ -75,16 +75,14 @@ type
       HelperNodeProfile = 5;
       HelperNodeBinding = 6;
     private
-      FMemo: TSynMemo;
       FMemoFilename: String;
       FQueryRunning: Boolean;
       FLastChange: TDateTime;
-      procedure SetMemo(Value: TSynMemo);
+      FDirectoryWatchNotficationRunning: Boolean;
       procedure SetMemoFilename(Value: String);
       procedure SetQueryRunning(Value: Boolean);
       procedure TimerLastChangeOnTimer(Sender: TObject);
       procedure TimerStatusUpdateOnTimer(Sender: TObject);
-      procedure MemoOnChange(Sender: TObject);
       function GetBindParamsActivated: Boolean;
       procedure SetBindParamsActivated(Value: Boolean);
     public
@@ -93,6 +91,7 @@ type
       ExecutionThread: TQueryThread;
       CloseButton: TSpeedButton;
       pnlMemo: TPanel;
+      Memo: TSynMemo;
       pnlHelpers: TPanel;
       filterHelpers: TButtonedEdit;
       treeHelpers: TVirtualStringTree;
@@ -117,18 +116,26 @@ type
       function GetActiveResultTab: TResultTab;
       procedure DirectoryWatchNotify(const Sender: TObject; const Action: TWatchAction; const FileName: string);
       procedure MemofileModifiedTimerNotify(Sender: TObject);
-      function LoadContents(Filename: String; ReplaceContent: Boolean; Encoding: TEncoding): Boolean;
+      function LoadContents(Filepath: String; ReplaceContent: Boolean; Encoding: TEncoding): Boolean;
       property BindParamsActivated: Boolean read GetBindParamsActivated write SetBindParamsActivated;
       procedure SaveContents(Filename: String; OnlySelection: Boolean);
       procedure BackupUnsavedContent;
       property ActiveResultTab: TResultTab read GetActiveResultTab;
-      property Memo: TSynMemo read FMemo write SetMemo;
       property MemoFilename: String read FMemoFilename write SetMemoFilename;
       function MemoBackupFilename: String;
       property QueryRunning: Boolean read FQueryRunning write SetQueryRunning;
       constructor Create(AOwner: TComponent); override;
       destructor Destroy; override;
       class function GenerateUid: String;
+  end;
+  TQueryTabList = class(TObjectList<TQueryTab>)
+    public
+      function ActiveTab: TQueryTab;
+      function ActiveMemo: TSynMemo;
+      function ActiveHelpersTree: TVirtualStringTree;
+      function HasActiveTab: Boolean;
+      function TabByNumber(Number: Integer): TQueryTab;
+      function TabByControl(Control: TWinControl): TQueryTab;
   end;
 
   TQueryHistoryItem = class(TObject)
@@ -148,8 +155,6 @@ type
   TQueryHistoryItemComparer = class(TComparer<TQueryHistoryItem>)
     function Compare(const Left, Right: TQueryHistoryItem): Integer; override;
   end;
-
-  TThreeStateBoolean = (nbUnset, nbFalse, nbTrue);
 
   ITaskbarList = interface(IUnknown)
     [SID_ITaskbarList]
@@ -751,6 +756,13 @@ type
     DataGUIDlowercaseWobraces: TMenuItem;
     actCreateFunction: TAction;
     Storedfunction1: TMenuItem;
+    menuEditorCommands: TMenuItem;
+    N16: TMenuItem;
+    actCloseAllQueryTabs: TAction;
+    actCloseAllQueryTabs1: TMenuItem;
+    N25: TMenuItem;
+    Closeallquerytabs1: TMenuItem;
+    menuCloseRightQueryTabs: TMenuItem;
     procedure actCreateDBObjectExecute(Sender: TObject);
     procedure menuConnectionsPopup(Sender: TObject);
     procedure actExitApplicationExecute(Sender: TObject);
@@ -761,6 +773,8 @@ type
     procedure AfterFormCreate;
     procedure FormShow(Sender: TObject);
     procedure FormResize(Sender: TObject);
+    procedure AddEditorCommandMenu(const S: string);
+    procedure EditorCommandOnClick(Sender: TObject);
     procedure actUserManagerExecute(Sender: TObject);
     procedure actAboutBoxExecute(Sender: TObject);
     procedure actApplyFilterExecute(Sender: TObject);
@@ -822,7 +836,6 @@ type
       TargetCanvas: TCanvas);
     procedure LogSQL(Msg: String; Category: TDBLogCategory=lcInfo; Connection: TDBConnection=nil);
     procedure KillProcess(Sender: TObject);
-    procedure SynMemoQueryStatusChange(Sender: TObject; Changes: TSynStatusChanges);
     procedure TimerHostUptimeTimer(Sender: TObject);
     procedure ListTablesNewText(Sender: TBaseVirtualTree; Node: PVirtualNode;
         Column: TColumnIndex; NewText: String);
@@ -951,14 +964,8 @@ type
     procedure CloseButtonOnMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     function GetMainTabAt(X, Y: Integer): Integer;
     procedure FixQueryTabCloseButtons;
-    function ActiveQueryTab: TQueryTab;
     function GetOrCreateEmptyQueryTab(DoFocus: Boolean): TQueryTab;
-    function GetQueryTabByNumber(Number: Integer): TQueryTab;
-    function GetQueryTabByHelpers(FindTree: TBaseVirtualTree): TQueryTab;
-    function ActiveQueryMemo: TSynMemo;
-    function ActiveQueryHelpers: TVirtualStringTree;
     function ActiveSynMemo(AcceptReadOnlyMemo: Boolean): TSynMemo;
-    function QueryTabActive: Boolean;
     function IsQueryTab(PageIndex: Integer; IncludeFixed: Boolean): Boolean;
     procedure popupMainTabsPopup(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
@@ -1065,7 +1072,6 @@ type
     procedure lblExplainProcessAnalyzerClick(Sender: TObject);
     procedure popupSqlLogPopup(Sender: TObject);
     procedure actExplainAnalyzeCurrentQueryExecute(Sender: TObject);
-    procedure menuQueryExplainClick(Sender: TObject);
     procedure menuAutoExpandClick(Sender: TObject);
     procedure pnlLeftResize(Sender: TObject);
     procedure editDatabaseTableFilterChange(Sender: TObject);
@@ -1137,6 +1143,9 @@ type
     procedure actConnectionPropertiesExecute(Sender: TObject);
     procedure actRenameQueryTabExecute(Sender: TObject);
     procedure menuRenameQueryTabClick(Sender: TObject);
+    procedure SynMemoQueryChange(Sender: TObject);
+    procedure actCloseAllQueryTabsExecute(Sender: TObject);
+    procedure menuCloseRightQueryTabsClick(Sender: TObject);
   private
     // Executable file details
     FAppVerMajor: Integer;
@@ -1175,7 +1184,6 @@ type
     FOperatingGrid: TBaseVirtualTree;
     FActiveDbObj: TDBObject;
     FActiveObjectGroup: TListNodeType;
-    FIsWine: Boolean;
     FBtnAddTab: TSpeedButton;
     FDBObjectsMaxSize: Int64;
     FDBObjectsMaxRows: Int64;
@@ -1196,6 +1204,7 @@ type
     FFormatSettings: TFormatSettings;
     FActionList1DefaultCaptions: TStringList;
     FActionList1DefaultHints: TStringList;
+    FEditorCommandStrings: TStringList;
 
     // Host subtabs backend structures
     FHostListResults: TDBQueryList;
@@ -1238,7 +1247,7 @@ type
     procedure StoreTabs;
     function RestoreTabs: Boolean;
   public
-    QueryTabs: TObjectList<TQueryTab>;
+    QueryTabs: TQueryTabList;
     ActiveObjectEditor: TDBObjectEditor;
     FileEncodings: TStringList;
     ImportSettingsDone: Boolean;
@@ -1272,7 +1281,6 @@ type
     property AppVersion: String read FAppVersion;
     property Connections: TDBConnectionList read FConnections;
     property Delimiter: String read FDelimiter write SetDelimiter;
-    property IsWine: Boolean read FIsWine;
     property FocusedTables: TDBObjectList read FFocusedTables;
     procedure PaintColorBar(Value, Max: Extended; TargetCanvas: TCanvas; CellRect: TRect);
     procedure CallSQLHelpWithKeyword( keyword: String );
@@ -1333,6 +1341,7 @@ var
   SecondInstMsgId: UINT = 0;
   SysLanguage: String;
   MainFormCreated: Boolean = False;
+  MainFormAfterCreateDone: Boolean = False;
   PostponedLogItems: TDBLogItems;
 
 const
@@ -1550,9 +1559,9 @@ var
   Tab: TQueryTab;
   Grid: TVirtualStringTree;
 begin
-  if QueryTabActive then begin
+  if QueryTabs.HasActiveTab then begin
     // Switch between query editor and result grid
-    Tab := ActiveQueryTab;
+    Tab := QueryTabs.ActiveTab;
     if Tab.Memo.Focused then begin
       if Tab.ActiveResultTab <> nil then begin
         Grid := Tab.ActiveResultTab.Grid;
@@ -1647,7 +1656,7 @@ begin
   OpenSessions := TStringList.Create;
   for Connection in Connections do
     OpenSessions.Add(Connection.Parameters.SessionPath);
-  AppSettings.WriteString(asLastSessions, ImplodeStr(DELIM, OpenSessions));
+  AppSettings.WriteString(asLastSessions, Implode(DELIM, OpenSessions));
   OpenSessions.Free;
   if Assigned(ActiveConnection) then
     AppSettings.WriteString(asLastActiveSession, ActiveConnection.Parameters.SessionPath);
@@ -1786,11 +1795,11 @@ var
   ptrVerBuf: Pointer;
   FunctionCategories: TStringList;
   miGroup, miFilterGroup, miFunction, miFilterFunction: TMenuItem;
-  CopyAsMenu: TMenuItem;
-  NTHandle: THandle;
+  CopyAsMenu, CommandMenu: TMenuItem;
   TZI: TTimeZoneInformation;
-  wine_nt_to_unix_file_name: procedure(p1:pointer; p2:pointer); stdcall;
   dti: TDBDatatypeCategoryIndex;
+  EditorCommand: TSynEditorCommand;
+  CmdCap: String;
 begin
   caption := APPNAME;
 
@@ -1833,16 +1842,6 @@ begin
   FAppVerRevision := LoWord(FI.dwFileVersionLS);
   FAppVersion := Format('%d.%d.%d.%d', [FAppVerMajor, FAppVerMinor, FAppVerRelease, FAppVerRevision]);
   FreeMem(ptrVerBuf);
-
-  // Detect if we're running on Wine, not on native Windows
-  // Idea taken from http://ruminatedrumblings.blogspot.com/2008/04/detecting-virtualized-environment.html
-  NTHandle := LoadLibrary('NTDLL.DLL');
-  if NTHandle>32 then
-    wine_nt_to_unix_file_name := GetProcAddress(NTHandle, 'wine_nt_to_unix_file_name')
-  else
-    wine_nt_to_unix_file_name := nil;
-  FIsWine := Assigned(wine_nt_to_unix_file_name);
-  FreeLibrary(NTHandle);
 
   // Taskbar button interface for Windows 7
   // Possibly fails. See http://www.heidisql.com/forum.php?t=22451
@@ -1918,6 +1917,30 @@ begin
     menuCopyAs.Add(CopyAsMenu);
   end;
 
+  FEditorCommandStrings := TStringList.Create;
+  SynEditKeyCmds.GetEditorCommandValues(AddEditorCommandMenu);
+  for i:=0 to FEditorCommandStrings.Count-1 do begin
+    EditorCommand := ConvertCodeStringToCommand(FEditorCommandStrings[i]);
+    CommandMenu := TMenuItem.Create(MainMenu1);
+    CmdCap := FEditorCommandStrings[i];
+    CmdCap := Copy(CmdCap, 3, Length(CmdCap)-2);
+    // Insert spaces before uppercase chars
+    for j:=Length(CmdCap) downto 1 do begin
+      if (j > 1) and CmdCap[j].IsUpper then
+        Insert(' ', CmdCap, j);
+    end;
+    CommandMenu.Caption := CmdCap;
+    for j:=0 to SynMemoQuery.Keystrokes.Count-1 do begin
+      if SynMemoQuery.Keystrokes[j].Command = EditorCommand then begin
+        CommandMenu.Caption := CommandMenu.Caption + '   (' + ShortCutToText(SynMemoQuery.Keystrokes[j].ShortCut) + ')';
+        Break;
+      end;
+    end;
+    CommandMenu.OnClick := EditorCommandOnClick;
+    menuEditorCommands.Add(CommandMenu);
+  end;
+
+
 
   Delimiter := AppSettings.ReadString(asDelimiter);
 
@@ -1940,7 +1963,7 @@ begin
   InheritFont(QueryTab.tabsetQuery.Font);
   QueryTab.ResultTabs := TResultTabs.Create(True);
 
-  QueryTabs := TObjectList<TQueryTab>.Create(True);
+  QueryTabs := TQueryTabList.Create(True);
   QueryTabs.Add(QueryTab);
 
   // Populate generic results for "Host" subtabs
@@ -2110,7 +2133,7 @@ begin
   treeQueryHelpers.RootNodeCount := 7;
 
   // Initialize taskbar jump list
-  if not FIsWine then begin
+  if not IsWine then begin
     FJumpList := TJumpList.Create;
     FJumpList.ApplicationId := APPNAME + IntToStr(GetExecutableBits);
   end;
@@ -2167,14 +2190,14 @@ begin
         frm.ReadCheckFile;
         // Show the dialog if release is available, or - when wanted - build checks are activated
         if (AppSettings.ReadBool(asUpdatecheckBuilds) and frm.btnBuild.Enabled)
-          or frm.btnRelease.Enabled then begin
+          or frm.LinkLabelRelease.Enabled then begin
           frm.ShowModal;
         end;
       except
         on E:Exception do
           LogSQL(f_('Error when checking for updates: %s', [E.Message]));
       end;
-      frm.Free;
+      frm.Free; // FormClose has no caFree, as it may not have been called
     end;
   end;
 
@@ -2284,6 +2307,8 @@ begin
         SetMainTab(Tab.TabSheet);
     end;
   end;
+
+  MainFormAfterCreateDone := True;
 end;
 
 
@@ -2513,6 +2538,7 @@ var
 begin
   Dialog := TConnForm.Create(Self);
   Dialog.ShowModal;
+  Dialog.Free;
 end;
 
 
@@ -2534,6 +2560,7 @@ begin
   if FConnections.Count = 0 then begin
     Dialog := TConnForm.Create(Self);
     DlgResult := Dialog.ShowModal;
+    Dialog.Free;
     if DlgResult = mrCancel then
       actExitApplication.Execute;
   end;
@@ -2546,8 +2573,9 @@ var
   Tab: TQueryTab;
   ResultTab: TResultTab;
   i: Integer;
-  Keys: TStringList;
+  Keys, NamesInKey: TStringList;
   rx: TRegExpr;
+  ForceDeleteTableKey: Boolean;
 begin
   // Connection removed or added
   case Action of
@@ -2582,20 +2610,22 @@ begin
         end;
       end;
 
-      // Remove filters if unwanted
-      if not AppSettings.ReadBool(asReuseEditorConfiguration) then begin
-        AppSettings.SessionPath := Item.Parameters.SessionPath;
-        Keys := AppSettings.GetKeyNames;
-        rx := TRegExpr.Create;
-        rx.Expression := '.+'+QuoteRegExprMetaChars(DELIM)+'.+';
-        for i:=0 to Keys.Count-1 do begin
-          if rx.Exec(Keys[i]) then begin
-            AppSettings.SessionPath := Item.Parameters.SessionPath + '\' + Keys[i];
+      // Remove table keys if unwanted or empty
+      ForceDeleteTableKey := not AppSettings.ReadBool(asReuseEditorConfiguration);
+      AppSettings.SessionPath := Item.Parameters.SessionPath;
+      Keys := AppSettings.GetKeyNames;
+      rx := TRegExpr.Create;
+      rx.Expression := '.+'+QuoteRegExprMetaChars(DELIM)+'.+';
+      for i:=0 to Keys.Count-1 do begin
+        if rx.Exec(Keys[i]) then begin
+          AppSettings.SessionPath := Item.Parameters.SessionPath + '\' + Keys[i];
+          NamesInKey := AppSettings.GetValueNames;
+          if (NamesInKey.Count = 0) or ForceDeleteTableKey then begin
             AppSettings.DeleteCurrentKey;
           end;
         end;
-        rx.Free;
       end;
+      rx.Free;
 
       FreeAndNil(ActiveObjectEditor);
       RefreshHelperNode(TQueryTab.HelperNodeProfile);
@@ -2629,6 +2659,7 @@ begin
   // Import Textfile
   Dialog := Tloaddataform.Create(Self);
   Dialog.ShowModal;
+  Dialog.Free;
 end;
 
 procedure TMainForm.actPreferencesExecute(Sender: TObject);
@@ -2640,6 +2671,7 @@ begin
   else if Sender = actPreferencesData then
     frmPreferences.pagecontrolMain.ActivePage := frmPreferences.tabGridFormatting;
   frmPreferences.ShowModal;
+  frmPreferences.Free;
   frmPreferences := nil; // Important in SetupSynEditors
 end;
 
@@ -2661,9 +2693,9 @@ var
     Result := Max(0, Tab.spltQuery.MinSize - (Tab.TabSheet.Height - Tab.pnlMemo.Height - Tab.spltQuery.Height - Tab.tabsetQuery.Height));
   end;
 
-  function CalcPanelWidth(PreferredWidth, Percentage: Integer): Integer;
+  function CalcPanelWidth(MaxPixels, MaxPercentage: Integer): Integer;
   begin
-    Result := Round(Min(PreferredWidth, Width / 100 * Percentage));
+    Result := Round(Min(MaxPixels, Width / 100 * MaxPercentage));
   end;
 begin
   // Exit early when user pressed "Cancel" on connection dialog
@@ -2675,10 +2707,10 @@ begin
 
   // Super intelligent calculation of status bar panel width
   w1 := CalcPanelWidth(110, 10);
-  w2 := CalcPanelWidth(160, 10);
+  w2 := CalcPanelWidth(240, 10);
   w3 := CalcPanelWidth(200, 15);
-  w4 := CalcPanelWidth(200, 15);
-  w5 := CalcPanelWidth(140, 10);
+  w4 := CalcPanelWidth(220, 15);
+  w5 := CalcPanelWidth(220, 10);
   w6 := CalcPanelWidth(300, 20);
   w0 := StatusBar.Width - w1 - w2 - w3 - w4 - w5 - w6;
   StatusBar.Panels[0].Width := w0;
@@ -2700,7 +2732,8 @@ begin
   // Ensure query grids are not overlapped by sql log
   for Tab in QueryTabs do begin
     // Decrease height of pnlMemo if grid has not enough height
-    Tab.pnlMemo.Height := Max(Tab.pnlMemo.Height-GridNeedHeight, Tab.spltQuery.MinSize);
+    // Disabled for annoyance reasons, see #1113
+    // Tab.pnlMemo.Height := Max(Tab.pnlMemo.Height-GridNeedHeight, Tab.spltQuery.MinSize);
     // Try again and resize SQLLog if required
     SynMemoSQLLog.Height := Max(SynMemoSQLLog.Height-GridNeedHeight, spltTopBottom.MinSize);
   end;
@@ -2728,6 +2761,28 @@ begin
   // Simulated link label, has non inherited blue font color
   lblExplainProcess.Font.Color := clBlue;
   lblExplainProcessAnalyzer.Font.Color := clBlue;
+
+  // Call once after all query tabs were created:
+  ValidateControls(Sender);
+end;
+
+procedure TMainForm.AddEditorCommandMenu(const S: string);
+begin
+  FEditorCommandStrings.Add(S);
+end;
+
+procedure TMainForm.EditorCommandOnClick(Sender: TObject);
+var
+  EditorCommand: TSynEditorCommand;
+  Editor: TSynMemo;
+begin
+  EditorCommand := IndexToEditorCommand(TMenuItem(Sender).MenuIndex);
+  Editor := ActiveSynMemo(False);
+  if Assigned(Editor) then begin
+    Editor.BeginUndoBlock;
+    Editor.ExecuteCommand(EditorCommand, #0, nil);
+    Editor.EndUndoBlock;
+  end;
 end;
 
 procedure TMainForm.actUserManagerExecute(Sender: TObject);
@@ -2736,6 +2791,7 @@ var
 begin
   Dialog := TUserManagerForm.Create(Self);
   Dialog.ShowModal;
+  Dialog.Free;
 end;
 
 procedure TMainForm.actAboutBoxExecute(Sender: TObject);
@@ -2753,7 +2809,7 @@ var
   m: TSynMemo;
 begin
   if Sender = actClearQueryEditor then begin
-    m := ActiveQueryMemo
+    m := QueryTabs.ActiveMemo
   end else if Sender = actClearQueryLog then begin
     m := SynMemoSQLLog;
     m.Gutter.LineNumberStart := m.Gutter.LineNumberStart + m.Lines.Count;
@@ -2766,9 +2822,9 @@ begin
   m.SelStart := 0;
   m.SelEnd := 0;
   if Sender = actClearQueryEditor then begin
-    ActiveQueryTab.MemoFilename := '';
-    ActiveQueryTab.Memo.Modified := False;
-    ActiveQueryTab.Uid := '';
+    QueryTabs.ActiveTab.MemoFilename := '';
+    QueryTabs.ActiveTab.Memo.Modified := False;
+    QueryTabs.ActiveTab.Uid := '';
   end;
   if m = SynMemoFilter then begin
     InvalidateVT(DataGrid, VTREE_NOTLOADED_PURGECACHE, False);
@@ -2881,6 +2937,7 @@ begin
   // copy table
   Dialog := TCopyTableForm.Create(Self);
   Dialog.ShowModal;
+  Dialog.Free;
 end;
 
 
@@ -3055,7 +3112,7 @@ var
   rx: TRegExpr;
   ContainsUnsafeQueries, DoExecute: Boolean;
 begin
-  Tab := ActiveQueryTab;
+  Tab := QueryTabs.ActiveTab;
   OperationRunning(True);
   DoExecute := True;
 
@@ -3161,13 +3218,25 @@ var
   NewTab: TResultTab;
   col: TVirtualTreeColumn;
   TabCaption: String;
+  TabsetColor: TColor;
   Results: TDBQuery;
   i: Integer;
 begin
   // Single query or query packet has finished
 
   ShowStatusMsg(_('Setting up result grid(s) ...'));
-  Tab := GetQueryTabByNumber(Thread.TabNumber);
+  Tab := QueryTabs.TabByNumber(Thread.TabNumber);
+
+  // Use session color on result tabs
+  TabsetColor := Thread.Connection.Parameters.SessionColor;
+  if TabsetColor <> clNone then begin
+    Tab.tabsetQuery.SelectedColor := TabsetColor;
+    Tab.tabsetQuery.UnselectedColor := ColorAdjustLuma(TabsetColor, 5, False);
+  end
+  else begin
+    Tab.tabsetQuery.SelectedColor := clWindow;
+    Tab.tabsetQuery.UnselectedColor := clBtnFace;
+  end;
 
   // Create result tabs
   for Results in Thread.Connection.GetLastResults do begin
@@ -3264,7 +3333,7 @@ var
 
 begin
   // Find right query tab
-  Tab := GetQueryTabByNumber(Thread.TabNumber);
+  Tab := QueryTabs.TabByNumber(Thread.TabNumber);
 
   // Error handling
   if not Thread.ErrorMessage.IsEmpty then begin
@@ -3444,22 +3513,11 @@ procedure TMainForm.tabsetQueryGetImageIndex(Sender: TObject; TabIndex: Integer;
 begin
   // Give result tabs of editable results a table icon
   try
-    ActiveQueryTab.ResultTabs[TabIndex].Results.TableName;
+    QueryTabs.ActiveTab.ResultTabs[TabIndex].Results.TableName;
     ImageIndex := 14;
   except
     ImageIndex := -1;
   end;
-end;
-
-
-procedure TMainForm.menuQueryExplainClick(Sender: TObject);
-var
-  SQL: String;
-begin
-  // Sub menu with EXPLAIN items pops up
-  SQL := GetCurrentQuery(ActiveQueryTab);
-  actExplainCurrentQuery.Enabled := ActiveConnection.Parameters.IsAnyMySQL;
-  actExplainAnalyzeCurrentQuery.Enabled := actExplainCurrentQuery.Enabled;
 end;
 
 
@@ -3470,7 +3528,7 @@ var
 begin
   // Send EXPLAIN output to analyzer
   Conn := ActiveConnection;
-  CurrentQuery := GetCurrentQuery(ActiveQueryTab);
+  CurrentQuery := GetCurrentQuery(QueryTabs.ActiveTab);
   try
     Conn.ExplainAnalyzer(CurrentQuery, Conn.Database);
   except
@@ -3488,6 +3546,7 @@ begin
   ExportDialog := TfrmExportGrid.Create(Self);
   ExportDialog.Grid := ActiveGrid;
   ExportDialog.ShowModal;
+  ExportDialog.Free;
 end;
 
 
@@ -3668,6 +3727,7 @@ var
 begin
   Dialog := TfrmInsertFiles.Create(Self);
   Dialog.ShowModal;
+  Dialog.Free;
 end;
 
 // Drop Table(s)
@@ -3766,14 +3826,13 @@ var
   path, p, log, cmd: String;
   sep: Char;
   Conn: TDBConnection;
-  PasswordStart, PasswordEnd: Integer;
 begin
   // Launch mysql.exe
   Conn := ActiveConnection;
   if not Conn.Parameters.IsAnyMySQL then
     ErrorDialog(_('Command line only works on MySQL connections.'))
   else begin
-    if FIsWine then begin
+    if IsWine then begin
       cmd := 'mysql';
       sep := '/';
     end else begin
@@ -3788,49 +3847,16 @@ begin
         CRLF+CRLF+f_('Current setting is: "%s"', [path]));
     end else begin
       p := '';
-      if FIsWine then begin
+      if IsWine then begin
         p := ' -e '+path+cmd;
         path := '';
         cmd := '$TERM';
       end;
 
-      if Conn.Parameters.WantSSL then
-        p := p + ' --ssl';
-      if not Conn.Parameters.SSLPrivateKey.IsEmpty then
-        p := p + ' --ssl-key="'+Conn.Parameters.SSLPrivateKey+'"';
-      if not Conn.Parameters.SSLCertificate.IsEmpty then
-        p := p + ' --ssl-cert="'+Conn.Parameters.SSLCertificate+'"';
-      if not Conn.Parameters.SSLCACertificate.IsEmpty then
-        p := p + ' --ssl-ca="'+Conn.Parameters.SSLCACertificate+'"';
-
-      case Conn.Parameters.NetType of
-        ntMySQL_NamedPipe:
-          p := p + ' --pipe --socket="'+Conn.Parameters.Hostname+'"';
-        ntMySQL_SSHtunnel:
-          p := p + ' --host="localhost" --port='+IntToStr(Conn.Parameters.SSHLocalPort);
-        else
-          p := p + ' --host="'+Conn.Parameters.Hostname+'" --port='+IntToStr(Conn.Parameters.Port);
-      end;
-
-      p := p + ' --user="'+Conn.Parameters.Username+'"';
-      // Markers for removing password from log line
-      PasswordStart := -1;
-      PasswordEnd := -1;
-      if Conn.Parameters.Password <> '' then begin
-        PasswordStart := Length(path + cmd + p) +14;
-        p := p + ' --password="'+StringReplace(Conn.Parameters.Password, '"', '\"', [rfReplaceAll])+'"';
-        PasswordEnd := Length(path + cmd + p);
-      end;
-      if Conn.Parameters.Compressed then
-        p := p + ' --compress';
-      if ActiveDatabase <> '' then
-        p := p + ' --database="' + ActiveDatabase + '"';
-      log := path + cmd + p;
-      if PasswordStart > -1 then begin
-        Delete(log, PasswordStart, PasswordEnd-PasswordStart);
-        Insert('********', log, PasswordStart);
-      end;
+      log := path + cmd + p + Conn.Parameters.GetExternalCliArguments(Conn, nbTrue);
       LogSQL(f_('Launching command line: %s', [log]), lcInfo);
+
+      p := p + Conn.Parameters.GetExternalCliArguments(Conn, nbFalse);
       ShellExec(cmd, path, p);
     end;
   end;
@@ -3949,7 +3975,7 @@ begin
       Dialog.Free;
     end else begin
       msgtext := f_('One or more of the selected files are larger than %s:', [FormatByteNumber(RunFileSize, 0)]) + CRLF +
-        ImplodeStr(CRLF, PopupFileList) + CRLF + CRLF +
+        Implode(CRLF, PopupFileList) + CRLF + CRLF +
         _('Just run these files to avoid loading them into the query-editor (= memory)?') + CRLF + CRLF +
         _('Press') + CRLF +
         _('  [Yes] to run file(s) without loading it into the editor') + CRLF +
@@ -4279,6 +4305,7 @@ begin
   end;
 
   StoreLastSessions;
+  ValidateControls(Connection);
   ShowStatusMsg;
 end;
 
@@ -4346,7 +4373,7 @@ var
 begin
   frm := TfrmUpdateCheck.Create(Self);
   frm.ShowModal;
-  FreeAndNil(frm);
+  frm.Free; // FormClose has no caFree, as it may not have been called
 end;
 
 
@@ -4509,9 +4536,9 @@ begin
       ParamValues := '';
       case Obj.Connection.Parameters.NetTypeGroup of
         ngMySQL, ngPgSQL:
-          ParamValues := '(' + ImplodeStr(', ', Params) + ')';
+          ParamValues := '(' + Implode(', ', Params) + ')';
         ngMSSQL:
-          ParamValues := ' ' + ImplodeStr(' ', Params);
+          ParamValues := ' ' + Implode(' ', Params);
         else
           raise Exception.CreateFmt(_(MsgUnhandledNetType), [Integer(Obj.Connection.Parameters.NetType)]);
       end;
@@ -4650,9 +4677,9 @@ begin
     and Assigned(DataGrid.FocusedNode) then begin
     keyword := SelectedTableFocusedColumn.DataType.Name;
 
-  end else if ActiveControl = ActiveQueryHelpers then begin
+  end else if ActiveControl = QueryTabs.ActiveHelpersTree then begin
     // Makes only sense if one of the nodes "SQL fn" or "SQL kw" was selected
-    Tree := ActiveQueryHelpers;
+    Tree := QueryTabs.ActiveHelpersTree;
     if Assigned(Tree.FocusedNode)
       and (Tree.GetNodeLevel(Tree.FocusedNode)=1)
       and (Tree.FocusedNode.Parent.Index in [TQueryTab.HelperNodeFunctions, TQueryTab.HelperNodeKeywords]) then
@@ -4674,6 +4701,7 @@ var
 begin
   SyncForm := TfrmSyncDB.Create(Self);
   SyncForm.ShowModal;
+  SyncForm.Free;
 end;
 
 
@@ -4696,7 +4724,8 @@ end;
 procedure TMainform.CallSQLHelpWithKeyword( keyword: String );
 begin
   if FActiveDbObj.Connection.ServerVersionInt >= 40100 then begin
-    SqlHelpDialog := TfrmSQLhelp.Create(Self);
+    if not Assigned(SqlHelpDialog) then
+      SqlHelpDialog := TfrmSQLhelp.Create(Self);
     SqlHelpDialog.Show;
     SqlHelpDialog.Keyword := keyword;
   end else
@@ -4746,7 +4775,7 @@ var
 begin
   // Save SQL
   CanSave := mrNo;
-  QueryTab := ActiveQueryTab;
+  QueryTab := QueryTabs.ActiveTab;
   SaveDialog := TSaveDialog.Create(Self);
   DefaultFilename := QueryTab.TabSheet.Caption;
   DefaultFilename := DefaultFilename.Trim([' ', '*']);
@@ -4791,12 +4820,12 @@ procedure TMainForm.actSaveSQLExecute(Sender: TObject);
 var
   i: Integer;
 begin
-  if ActiveQueryTab.MemoFilename <> '' then begin
-    ActiveQueryTab.SaveContents(ActiveQueryTab.MemoFilename, False);
+  if QueryTabs.ActiveTab.MemoFilename <> '' then begin
+    QueryTabs.ActiveTab.SaveContents(QueryTabs.ActiveTab.MemoFilename, False);
     for i:=0 to QueryTabs.Count-1 do begin
-      if QueryTabs[i] = ActiveQueryTab then
+      if QueryTabs[i] = QueryTabs.ActiveTab then
         continue;
-      if QueryTabs[i].MemoFilename = ActiveQueryTab.MemoFilename then
+      if QueryTabs[i].MemoFilename = QueryTabs.ActiveTab.MemoFilename then
         QueryTabs[i].Memo.Modified := True;
     end;
     ValidateQueryControls(Sender);
@@ -5403,7 +5432,7 @@ begin
         end;
       end;
       AppSettings.SessionPath := Conn.Parameters.SessionPath;
-      AppSettings.WriteString(asHost, implodestr(DELIM, OldFiles));
+      AppSettings.WriteString(asHost, Implode(DELIM, OldFiles));
       RefreshTree;
     except
       on E:EDbError do begin
@@ -5441,7 +5470,7 @@ begin
       end;
     end;
     AppSettings.SessionPath := Obj.Connection.Parameters.SessionPath;
-    AppSettings.WriteString(asHost, implodestr(DELIM, OldFiles));
+    AppSettings.WriteString(asHost, Implode(DELIM, OldFiles));
     RefreshTree;
   except
     on E:EDbError do begin
@@ -5619,7 +5648,7 @@ end;
 procedure TMainForm.DataGridBeforePaint(Sender: TBaseVirtualTree; TargetCanvas: TCanvas);
 var
   vt: TVirtualStringTree;
-  Select: String;
+  Select, FixedFilter: String;
   RefreshingData, IsKeyColumn: Boolean;
   i, ColWidth, VisibleColumns, MaximumRows, FullColumnCount: Integer;
   ColMaxLen, Offset: Int64;
@@ -5629,6 +5658,7 @@ var
   OldScrollOffset: TPoint;
   DBObj: TDBObject;
   rx: TRegExpr;
+  OldCursor: TBufferCoord;
 
   procedure InitColumn(idx: Integer; TblCol: TTableColumn);
   var
@@ -5742,7 +5772,12 @@ begin
       rx := TRegExpr.Create;
       rx.ModifierI := True;
       rx.Expression := '^\s*WHERE\s+';
-      SynMemoFilter.Text := rx.Replace(SynMemoFilter.Text, '');
+      FixedFilter := rx.Replace(SynMemoFilter.Text, '');
+      if FixedFilter <> SynMemoFilter.Text then begin
+        OldCursor := SynMemoFilter.CaretXY;
+        SynMemoFilter.Text := FixedFilter;
+        SynMemoFilter.CaretXY := OldCursor;
+      end;
       rx.Free;
       Select := Select + ' WHERE ' + SynMemoFilter.Text + CRLF;
       tbtnDataFilter.ImageIndex := 108;
@@ -5971,6 +6006,11 @@ begin
     Exit;
 
   tab := PageControlMain.ActivePage;
+  // Query helpers need a hit here, since RefreshHelperNode now only does its update on the active tab
+  // See https://www.heidisql.com/forum.php?t=37961
+  RefreshHelperNode(TQueryTab.HelperNodeColumns);
+  RefreshHelperNode(TQueryTab.HelperNodeSnippets);
+  RefreshHelperNode(TQueryTab.HelperNodeHistory);
 
   // Move focus to relevant controls in order for them to receive keyboard events.
   // Do this only if the user clicked the new tab. Not on automatic tab changes.
@@ -5981,9 +6021,9 @@ begin
       if DataGrid.CanFocus and DataGrid.Enabled then
         DataGrid.SetFocus;
     end else if IsQueryTab(tab.PageIndex, True) then begin
-      ActiveQueryMemo.SetFocus;
-      ActiveQueryMemo.WordWrap := actQueryWordWrap.Checked;
-      SynMemoQueryStatusChange(ActiveQueryMemo, []);
+      QueryTabs.ActiveMemo.SetFocus;
+      QueryTabs.ActiveMemo.WordWrap := actQueryWordWrap.Checked;
+      SynMemoQueryChange(QueryTabs.ActiveMemo);
     end;
   end;
 
@@ -6233,8 +6273,8 @@ begin
       end;
     end;
   end;
-  inDataTab := PageControlMain.ActivePage = tabData;
-  inDataOrQueryTab := inDataTab or QueryTabActive;
+  inDataTab := Grid = DataGrid;
+  inDataOrQueryTab := inDataTab or QueryTabs.HasActiveTab;
   inDataOrQueryTabNotEmpty := inDataOrQueryTab and Assigned(Grid) and (Grid.RootNodeCount > 0);
   inGrid := Assigned(Grid) and (ActiveControl = Grid);
 
@@ -6286,7 +6326,14 @@ var
   Tab: TQueryTab;
   cap: String;
   InQueryTab: Boolean;
+  Conn: TDBConnection;
 begin
+  // Enable/disable TActions, according to the current window/connection state
+
+  // Prevent superfluous calls while setting up query tabs
+  if not MainFormAfterCreateDone then
+    Exit;
+
   for Tab in QueryTabs do begin
     cap := Trim(Tab.TabSheet.Caption);
     if cap[Length(cap)] = '*' then
@@ -6296,16 +6343,17 @@ begin
     if Tab.TabSheet.Caption <> cap then
       SetTabCaption(Tab.TabSheet.PageIndex, cap);
   end;
-  InQueryTab := QueryTabActive;
-  Tab := ActiveQueryTab;
+  InQueryTab := QueryTabs.HasActiveTab;
+  Tab := QueryTabs.ActiveTab;
   NotEmpty := InQueryTab and (Tab.Memo.GetTextLen > 0);
   HasSelection := InQueryTab and Tab.Memo.SelAvail;
-  HasConnection := ActiveConnection <> nil;
+  Conn := ActiveConnection;
+  HasConnection := Conn <> nil;
   actExecuteQuery.Enabled := HasConnection and InQueryTab and NotEmpty and (not Tab.QueryRunning);
   actExecuteSelection.Enabled := HasConnection and InQueryTab and HasSelection and (not Tab.QueryRunning);
   actExecuteCurrentQuery.Enabled := actExecuteQuery.Enabled;
-  actExplainCurrentQuery.Enabled := actExecuteQuery.Enabled;
-  actExplainAnalyzeCurrentQuery.Enabled := actExecuteQuery.Enabled;
+  actExplainCurrentQuery.Enabled := actExecuteQuery.Enabled and (Conn.Parameters.NetTypeGroup in [ngMySQL, ngPgSQL, ngSQLite]);
+  actExplainAnalyzeCurrentQuery.Enabled := actExplainCurrentQuery.Enabled and Conn.Parameters.IsAnyMySQL;
   actSaveSQLAs.Enabled := InQueryTab and NotEmpty;
   actSaveSQL.Enabled := actSaveSQLAs.Enabled and Tab.Memo.Modified;
   actSaveSQLselection.Enabled := InQueryTab and HasSelection;
@@ -6314,9 +6362,19 @@ begin
   actClearQueryEditor.Enabled := InQueryTab;
   actSetDelimiter.Enabled := InQueryTab;
   actCloseQueryTab.Enabled := IsQueryTab(PageControlMain.ActivePageIndex, False);
+  actCloseAllQueryTabs.Enabled := QueryTabs.Count > 1;
   actCodeFoldingStartRegion.Enabled := InQueryTab;
   actCodeFoldingEndRegion.Enabled := InQueryTab;
   actCodeFoldingFoldSelection.Enabled := HasSelection;
+  if InQueryTab then begin
+    if HasConnection and (Conn.Parameters.SessionColor <> clNone) then begin
+      Tab.Memo.Gutter.Color := Conn.Parameters.SessionColor;
+    end
+    else begin
+      Tab.Memo.Gutter.Color := clBtnFace;
+    end;
+  end;
+
 end;
 
 
@@ -6686,25 +6744,36 @@ begin
 end;
 
 
-procedure TMainForm.SynMemoQueryStatusChange(Sender: TObject; Changes:
-    TSynStatusChanges);
+procedure TMainForm.SynMemoQueryChange(Sender: TObject);
 var
   Edit: TSynMemo;
+  Tab: TQueryTab;
 begin
-  // Crashed with scTopLine and an non-set ActiveQueryTab while resizing main window, so limit to modifications
-  if not (scModified in Changes) then
+  if not MainFormAfterCreateDone then
     Exit;
-  // Don't ask for saving empty contents. See issue #614
+
   Edit := Sender as TSynMemo;
+  Tab := QueryTabs.TabByControl(Edit);
+  if Tab <> QueryTabs.ActiveTab then
+    Exit;
+
+  // Check if bind param detection is enabled for text size <1M
+  // Uncheck checkbox if it's bigger
+  // Code moved back from TQueryTab.MemoOnChange here
+  Tab.TimerLastChange.Enabled := False;
+  Tab.FLastChange := Now;
+  Tab.TimerLastChange.Enabled := True;
+
+  // Don't ask for saving empty contents. See issue #614
   if Edit.GetTextLen = 0 then begin
-    ActiveQueryTab.MemoFilename := '';
-    ActiveQueryTab.Memo.Modified := False;
+    Tab.MemoFilename := '';
+    Tab.Memo.Modified := False;
   end;
+
   // Update various controls
   ValidateQueryControls(Sender);
   UpdateLineCharPanel;
 end;
-
 
 
 procedure TMainForm.TimerHostUptimeTimer(Sender: TObject);
@@ -6823,9 +6892,11 @@ end;
 procedure TMainForm.QuickFilterClick(Sender: TObject);
 var
   Filter, Val, Col: String;
+  TableCol: TTableColumn;
   Act: TAction;
   Item: TMenuItem;
   Conn: TDBConnection;
+  ShiftKeyPressed: Boolean;
 begin
   // Set filter for "where..."-clause
   if (PageControlMain.ActivePage <> tabData) or (DataGrid.FocusedColumn = NoColumn) then
@@ -6833,30 +6904,32 @@ begin
 
   Filter := '';
   Conn := ActiveConnection;
+  ShiftKeyPressed := KeyPressed(VK_SHIFT);
 
   if Sender is TAction then begin
     // Normal case for most quick filters
     Act := Sender as TAction;
     if ExecRegExpr('Prompt\d+$', Act.Name) then begin
       // Item needs prompt
-      Col := DataGrid.Header.Columns[DataGrid.FocusedColumn].Text;
-      Col := Conn.QuoteIdent(Col, False);
-      if (SelectedTableFocusedColumn.DataType.Index = dtJson)
+      TableCol := SelectedTableFocusedColumn;
+      Col := Conn.QuoteIdent(TableCol.Name, False);
+
+      if (TableCol.DataType.Index = dtJson)
         and (Conn.Parameters.NetTypeGroup = ngPgSQL) then begin
         Col := Col + '::text';
       end;
       Val := DataGrid.Text[DataGrid.FocusedNode, DataGrid.FocusedColumn];
       if InputQuery(_('Specify filter-value...'), Act.Caption, Val) then begin
         if Act = actQuickFilterPrompt1 then
-          Filter := Col + ' = ''' + Val + ''''
+          Filter := Col + ' = ' + Conn.EscapeString(Val, TableCol.DataType)
         else if Act = actQuickFilterPrompt2 then
-          Filter := Col + ' != ''' + Val + ''''
+          Filter := Col + ' != ' + Conn.EscapeString(Val, TableCol.DataType)
         else if Act = actQuickFilterPrompt3 then
-          Filter := Col + ' > ''' + Val + ''''
+          Filter := Col + ' > ' + Conn.EscapeString(Val, TableCol.DataType)
         else if Act = actQuickFilterPrompt4 then
-          Filter := Col + ' < ''' + Val + ''''
+          Filter := Col + ' < ' + Conn.EscapeString(Val, TableCol.DataType)
         else if Act = actQuickFilterPrompt5 then
-          Filter := Conn.GetSQLSpecifity(spLikeCompare, [Col, '''%' + Val + '%''']);
+          Filter := Conn.GetSQLSpecifity(spLikeCompare, [Col, Conn.EscapeString('%'+Val+'%', TableCol.DataType)]);
       end;
     end
     else begin
@@ -6875,7 +6948,7 @@ begin
 
     SynMemoFilter.UndoList.AddGroupBreak;
     SynMemoFilter.SelectAll;
-    if KeyPressed(VK_SHIFT)
+    if ShiftKeyPressed
       and (Pos(Filter, SynMemoFilter.Text) = 0) and (Pos(SynMemoFilter.Text, Filter) = 0)
       and (not SynMemoFilter.Text.Trim.IsEmpty)
       then begin
@@ -6892,7 +6965,7 @@ end;
 procedure TMainForm.popupQueryPopup(Sender: TObject);
 begin
   // Sets cursor into memo and activates TAction(s) like paste
-  ActiveQueryMemo.SetFocus;
+  QueryTabs.ActiveMemo.SetFocus;
 end;
 
 
@@ -6938,10 +7011,10 @@ var
   H: TVirtualStringTree;
 begin
   // dragging an object over the query-memo
-  Memo := ActiveQueryMemo;
+  Memo := QueryTabs.ActiveMemo;
   src := Source as TControl;
   // Accepting drag's from the same editor, from DBTree and from QueryHelpers
-  H := ActiveQueryHelpers;
+  H := QueryTabs.ActiveHelpersTree;
   Accept := (src = DBtree) or ((src = H) and Assigned(H.FocusedNode) and (H.GetNodeLevel(H.FocusedNode) in [1,2]));
   // set x-position of cursor
   Memo.CaretX := (x - Memo.Gutter.Width) div Memo.CharWidth - 1 + Memo.LeftChar;
@@ -6963,11 +7036,11 @@ var
   History: TQueryHistory;
 begin
   // dropping a tree node or listbox item into the query-memo
-  ActiveQueryMemo.UndoList.AddGroupBreak;
+  QueryTabs.ActiveMemo.UndoList.AddGroupBreak;
   src := Source as TControl;
   Text := '';
   ShiftPressed := KeyPressed(VK_SHIFT);
-  Tree := ActiveQueryHelpers;
+  Tree := QueryTabs.ActiveHelpersTree;
   // Check for allowed controls as source has already
   // been performed in OnDragOver. So, only do typecasting here.
   if src = DBtree then begin
@@ -7008,7 +7081,7 @@ begin
       2:
         case Tree.FocusedNode.Parent.Parent.Index of
           TQueryTab.HelperNodeHistory: begin
-            History := ActiveQueryTab.HistoryDays.Objects[Tree.FocusedNode.Parent.Index] as TQueryHistory;
+            History := QueryTabs.ActiveTab.HistoryDays.Objects[Tree.FocusedNode.Parent.Index] as TQueryHistory;
             Text := History[Tree.FocusedNode.Index].SQL;
           end;
         end;
@@ -7017,10 +7090,10 @@ begin
     raise Exception.Create(_('Unspecified source control in drag''n drop operation!'));
 
   if Text <> '' then begin
-    ActiveQueryMemo.SelText := Text;
-    ActiveQueryMemo.UndoList.AddGroupBreak;
+    QueryTabs.ActiveMemo.SelText := Text;
+    QueryTabs.ActiveMemo.UndoList.AddGroupBreak;
     // Requires to set focus, as doubleclick actions also call this procedure
-    ActiveQueryMemo.SetFocus;
+    QueryTabs.ActiveMemo.SetFocus;
   end;
 end;
 
@@ -7362,6 +7435,7 @@ var
   OldDataLocalNumberFormat: Boolean;
   IncludedValues: TStringList;
   Act: TAction;
+  Datatype: TDBDatatype;
 const
   CLPBRD : String = 'CLIPBOARD';
 begin
@@ -7384,9 +7458,10 @@ begin
     Exit;
   Results := GridResult(Grid);
 
+  Datatype := Results.DataType(Grid.FocusedColumn);
   Col := Results.Connection.QuoteIdent(Results.ColumnOrgNames[Grid.FocusedColumn], False);
   if InDataGrid
-    and (SelectedTableFocusedColumn.DataType.Index = dtJson)
+    and (Datatype.Index = dtJson)
     and Results.Connection.Parameters.IsAnyPostgreSQL then begin
     Col := Col + '::text';
   end;
@@ -7415,8 +7490,8 @@ begin
       HasNotNullValue := True;
       Value := Grid.Text[Node, Grid.FocusedColumn];
       if IncludedValues.IndexOf(Value) = -1 then begin
-        actQuickFilterFocused1.Hint := actQuickFilterFocused1.Hint + Results.Connection.EscapeString(Value) + ', ';
-        actQuickFilterFocused2.Hint := actQuickFilterFocused2.Hint + Results.Connection.EscapeString(Value) + ', ';
+        actQuickFilterFocused1.Hint := actQuickFilterFocused1.Hint + Results.Connection.EscapeString(Value, Datatype) + ', ';
+        actQuickFilterFocused2.Hint := actQuickFilterFocused2.Hint + Results.Connection.EscapeString(Value, Datatype) + ', ';
         actQuickFilterFocused3.Hint := actQuickFilterFocused3.Hint +
           Results.Connection.GetSQLSpecifity(spLikeCompare, [Col, '''' + Results.Connection.EscapeString(Value, True, False) + '%''']) +
           ' OR ';
@@ -7426,8 +7501,8 @@ begin
         actQuickFilterFocused5.Hint := actQuickFilterFocused5.Hint +
           Results.Connection.GetSQLSpecifity(spLikeCompare, [Col, '''%' + Results.Connection.EscapeString(Value, True, False) + '%''']) +
           ' OR ';
-        actQuickFilterFocused6.Hint := actQuickFilterFocused6.Hint + Col + ' > ' + Results.Connection.EscapeString(Value) + ' OR ';
-        actQuickFilterFocused7.Hint := actQuickFilterFocused7.Hint + Col + ' < ' + Results.Connection.EscapeString(Value) + ' OR ';
+        actQuickFilterFocused6.Hint := actQuickFilterFocused6.Hint + Col + ' > ' + Results.Connection.EscapeString(Value, Datatype) + ' OR ';
+        actQuickFilterFocused7.Hint := actQuickFilterFocused7.Hint + Col + ' < ' + Results.Connection.EscapeString(Value, Datatype) + ' OR ';
         IncludedValues.Add(Value);
       end;
     end;
@@ -7485,13 +7560,13 @@ begin
   Value := Trim(Clipboard.AsText);
   if Length(Value) < SIZE_KB then begin
     actQuickFilterClipboard1.Enabled := true;
-    actQuickFilterClipboard1.Hint := Col + ' = ' + Results.Connection.EscapeString(Value);
+    actQuickFilterClipboard1.Hint := Col + ' = ' + Results.Connection.EscapeString(Value, Datatype);
     actQuickFilterClipboard2.Enabled := true;
-    actQuickFilterClipboard2.Hint := Col + ' != ' + Results.Connection.EscapeString(Value);
+    actQuickFilterClipboard2.Hint := Col + ' != ' + Results.Connection.EscapeString(Value, Datatype);
     actQuickFilterClipboard3.Enabled := true;
-    actQuickFilterClipboard3.Hint := Col + ' > ' + Results.Connection.EscapeString(Value);
+    actQuickFilterClipboard3.Hint := Col + ' > ' + Results.Connection.EscapeString(Value, Datatype);
     actQuickFilterClipboard4.Enabled := true;
-    actQuickFilterClipboard4.Hint := Col + ' < ' + Results.Connection.EscapeString(Value);
+    actQuickFilterClipboard4.Hint := Col + ' < ' + Results.Connection.EscapeString(Value, Datatype);
     actQuickFilterClipboard5.Enabled := true;
     actQuickFilterClipboard5.Hint := Results.Connection.GetSQLSpecifity(spLikeCompare, [Col, '''%' + Results.Connection.EscapeString(Value, True, False) + '%''']);
     actQuickFilterClipboard6.Enabled := true;
@@ -7580,7 +7655,7 @@ begin
       if Data.IsNull(ColName) then
         Item.Hint := Conn.QuoteIdent(ColName)+' IS NULL'
       else if ColType.Category in [dtcBinary, dtcSpatial] then
-        Item.Hint := Conn.QuoteIdent(ColName)+'='+Data.HexValue(0)
+        Item.Hint := Conn.QuoteIdent(ColName)+'='+Data.HexValue(0, False)
       else
         Item.Hint := Conn.QuoteIdent(ColName)+'='+Conn.EscapeString(Data.Col(ColName));
       Item.Caption := StrEllipsis(Item.Hint, 100) + ' (' + FormatNumber(Data.Col('c')) + ')';
@@ -7862,7 +7937,7 @@ end;
 procedure TMainForm.filterQueryHelpersChange(Sender: TObject);
 begin
   // Filter nodes in query helpers
-  FilterNodesByEdit(Sender as TButtonedEdit, ActiveQueryHelpers);
+  FilterNodesByEdit(Sender as TButtonedEdit, QueryTabs.ActiveHelpersTree);
 end;
 
 
@@ -7888,7 +7963,7 @@ begin
   // Check if user wants these balloon hints
   if not AppSettings.ReadBool(asHintsOnResultTabs) then
     Exit;
-  QueryTab := ActiveQueryTab;
+  QueryTab := QueryTabs.ActiveTab;
   if idx >= QueryTab.ResultTabs.Count then
     Exit;
 
@@ -7933,7 +8008,7 @@ begin
   if SynMemoFilter.Focused then
     sm := SynMemoFilter
   else
-    sm := ActiveQueryMemo;
+    sm := QueryTabs.ActiveMemo;
   // Restore function name from array
   f := MySQLFunctions[TControl(Sender).tag].Name
     + MySQLFunctions[TControl(Sender).tag].Declaration;
@@ -7953,10 +8028,10 @@ var
   snippetfile : String;
 begin
   // Don't do anything if no item was selected
-  if not Assigned(ActiveQueryHelpers.FocusedNode) then
+  if not Assigned(QueryTabs.ActiveHelpersTree.FocusedNode) then
     Exit;
 
-  snippetfile := AppSettings.DirnameSnippets + ActiveQueryHelpers.Text[ActiveQueryHelpers.FocusedNode, 0] + '.sql';
+  snippetfile := AppSettings.DirnameSnippets + QueryTabs.ActiveHelpersTree.Text[QueryTabs.ActiveHelpersTree.FocusedNode, 0] + '.sql';
   if MessageDialog(_('Delete snippet file?'), snippetfile, mtConfirmation, [mbOk, mbCancel]) = mrOk then
   begin
     Screen.Cursor := crHourGlass;
@@ -7988,7 +8063,7 @@ end;
 }
 procedure TMainForm.menuInsertSnippetAtCursorClick(Sender: TObject);
 begin
-  ActiveQueryTab.LoadContents(AppSettings.DirnameSnippets + ActiveQueryHelpers.Text[ActiveQueryHelpers.FocusedNode, 0] + '.sql', False, nil);
+  QueryTabs.ActiveTab.LoadContents(AppSettings.DirnameSnippets + QueryTabs.ActiveHelpersTree.Text[QueryTabs.ActiveHelpersTree.FocusedNode, 0] + '.sql', False, nil);
 end;
 
 
@@ -7997,7 +8072,7 @@ end;
 }
 procedure TMainForm.menuLoadSnippetClick(Sender: TObject);
 begin
-  ActiveQueryTab.LoadContents(AppSettings.DirnameSnippets + ActiveQueryHelpers.Text[ActiveQueryHelpers.FocusedNode, 0] + '.sql', True, nil);
+  QueryTabs.ActiveTab.LoadContents(AppSettings.DirnameSnippets + QueryTabs.ActiveHelpersTree.Text[QueryTabs.ActiveHelpersTree.FocusedNode, 0] + '.sql', True, nil);
 end;
 
 
@@ -8324,12 +8399,12 @@ var
   NewHint: String;
 begin
   // Disable tooltips on Wine, as they prevent users from clicking + editing clipped cells
-  if FIsWine then
+  if IsWine then
     Exit;
 
   Tree := TVirtualStringTree(Sender);
 
-  if Tree = ActiveQueryHelpers then begin
+  if Tree = QueryTabs.ActiveHelpersTree then begin
     case Sender.GetNodeLevel(Node) of
       1: case Node.Parent.Index of
         TQueryTab.HelperNodeFunctions: begin
@@ -8566,9 +8641,9 @@ begin
   end else if tab = tabData then begin
     VT := DataGrid;
     FFilterTextData := editFilterVT.Text;
-  end else if QueryTabActive and (ActiveQueryTab.ActiveResultTab <> nil) then begin
+  end else if QueryTabs.HasActiveTab and (QueryTabs.ActiveTab.ActiveResultTab <> nil) then begin
     VT := ActiveGrid;
-    ActiveQueryTab.ActiveResultTab.FilterText := editFilterVT.Text;
+    QueryTabs.ActiveTab.ActiveResultTab.FilterText := editFilterVT.Text;
   end;
   if not Assigned(VT) then
     Exit;
@@ -9159,7 +9234,7 @@ begin
 
     case FActiveDbObj.NodeType of
       lntNone: begin
-        if (not DBtree.Dragging) and (not QueryTabActive) then
+        if (not DBtree.Dragging) and (not QueryTabs.HasActiveTab) then
           MainTabToActivate := tabHost;
         FActiveDbObj.Connection.Database := '';
       end;
@@ -9173,7 +9248,7 @@ begin
             Exit;
           end;
         end;
-        if (not DBtree.Dragging) and (not QueryTabActive) then
+        if (not DBtree.Dragging) and (not QueryTabs.HasActiveTab) then
           MainTabToActivate := tabDatabase;
         FActiveObjectGroup := FActiveDbObj.GroupType;
       end;
@@ -9219,7 +9294,8 @@ begin
           ErrorDialog(E.Message);
         end;
 
-        FActiveObjectGroup := ParentDBObj.GroupType;
+        if Assigned(ParentDBObj) then
+          FActiveObjectGroup := ParentDBObj.GroupType;
       end;
     end;
 
@@ -9279,6 +9355,7 @@ begin
     InvalidateVT(ListProcesses, VTREE_NOTLOADED, False);
     InvalidateVT(ListCommandstats, VTREE_NOTLOADED, False);
     InvalidateVT(ListTables, VTREE_NOTLOADED, False);
+    ValidateQueryControls(Self);
   end;
 
   // Make wanted tab visible before activating, to avoid unset tab on Wine
@@ -9365,8 +9442,8 @@ begin
   // Clear Filter issue 3466
   FFilterTextDatabase := '';
 
-  if ActiveQueryHelpers <> nil then
-    ActiveQueryHelpers.Invalidate;
+  if QueryTabs.ActiveHelpersTree <> nil then
+    QueryTabs.ActiveHelpersTree.Invalidate;
 end;
 
 
@@ -9415,10 +9492,10 @@ var
   m: TSynMemo;
 begin
   // Paste DB or table name into query window on treeview double click.
-  if AppSettings.ReadBool(asDoubleClickInsertsNodeText) and QueryTabActive and Assigned(DBtree.FocusedNode) then begin
+  if AppSettings.ReadBool(asDoubleClickInsertsNodeText) and QueryTabs.HasActiveTab and Assigned(DBtree.FocusedNode) then begin
     DBObj := DBtree.GetNodeData(DBtree.FocusedNode);
     if DBObj.NodeType in [lntDb, lntTable..lntEvent] then begin
-      m := ActiveQueryMemo;
+      m := QueryTabs.ActiveMemo;
       m.DragDrop(Sender, m.CaretX, m.CaretY);
     end;
   end;
@@ -9756,7 +9833,7 @@ begin
         if actBlobAsText.Checked then
           CellText := Results.Col(Column)
         else
-          CellText := Results.HexValue(Column);
+          CellText := Results.HexValue(Column, False);
       end;
       else begin
         CellText := Results.Col(Column);
@@ -10147,26 +10224,27 @@ begin
       if idx > -1 then try
         // Find the first text column if available and use that for displaying in the pulldown instead of using meaningless id numbers
         RefObj := ForeignKey.ReferenceTableObj;
+        if not Assigned(RefObj) then
+          Continue;
+
         TextCol := '';
-        if Assigned(RefObj) then begin
-          Columns := RefObj.TableColumns;
-          for TblColumn in Columns do begin
-            if (TblColumn.DataType.Category = dtcText) and (TblColumn.Name <> ForeignKey.ForeignColumns[idx]) then begin
-              TextCol := TblColumn.Name;
-              break;
-            end;
+        Columns := RefObj.TableColumns;
+        for TblColumn in Columns do begin
+          if (TblColumn.DataType.Category = dtcText) and (TblColumn.Name <> ForeignKey.ForeignColumns[idx]) then begin
+            TextCol := TblColumn.Name;
+            break;
           end;
         end;
 
         KeyCol := Conn.QuoteIdent(ForeignKey.ForeignColumns[idx]);
         if TextCol <> '' then begin
           SQL := KeyCol+', ' + Conn.GetSQLSpecifity(spFuncLeft, [Conn.QuoteIdent(TextCol), 256])+
-            ' FROM '+Conn.QuoteIdent(ForeignKey.ReferenceTable, True, '.')+
+            ' FROM ' + RefObj.QuotedDbAndTableName +
             ' GROUP BY '+KeyCol+', '+Conn.QuoteIdent(TextCol)+ // MSSQL complains if the text columns is not grouped
             ' ORDER BY '+Conn.QuoteIdent(TextCol);
         end else begin
           SQL := KeyCol+
-            ' FROM '+Conn.QuoteIdent(ForeignKey.ReferenceTable, True, '.')+
+            ' FROM ' + RefObj.QuotedDbAndTableName +
             ' GROUP BY '+KeyCol+
             ' ORDER BY '+KeyCol;
         end;
@@ -10260,6 +10338,8 @@ begin
     InplaceEditor.ButtonVisible := False;
     EditLink := InplaceEditor;
   end;
+  Sender.FocusedNode := Node;
+  Sender.FocusedColumn := Column;
   TBaseGridEditorLink(EditLink).TableColumn := TblColumn;
 end;
 
@@ -11333,10 +11413,11 @@ end;
 procedure TMainForm.actNewQueryTabExecute(Sender: TObject);
 var
   i: Integer;
-  QueryTab: TQueryTab;
+  QueryTab, OldTab: TQueryTab;
   HelperColumn: TVirtualTreeColumn;
 begin
   i := QueryTabs[QueryTabs.Count-1].Number + 1;
+  OldTab := QueryTabs.ActiveTab;
 
   QueryTabs.Add(TQueryTab.Create(Self));
   QueryTab := QueryTabs[QueryTabs.Count-1];
@@ -11344,6 +11425,7 @@ begin
   QueryTab.Uid := TQueryTab.GenerateUid;
 
   QueryTab.TabSheet := TTabSheet.Create(PageControlMain);
+  QueryTab.TabSheet.Name := tabQuery.Name + i.ToString;
   QueryTab.TabSheet.PageControl := PageControlMain;
   QueryTab.TabSheet.ImageIndex := tabQuery.ImageIndex;
 
@@ -11359,13 +11441,19 @@ begin
 
   // Dumb code which replicates all controls from tabQuery
   QueryTab.pnlMemo := TPanel.Create(QueryTab.TabSheet);
+  QueryTab.pnlMemo.Name := pnlQueryMemo.Name + i.ToString;
   QueryTab.pnlMemo.Parent := QueryTab.TabSheet;
   QueryTab.pnlMemo.BevelOuter := pnlQueryMemo.BevelOuter;
   QueryTab.pnlMemo.Align := pnlQueryMemo.Align;
-  QueryTab.pnlMemo.Height := pnlQueryMemo.Height;
+  if Assigned(OldTab) then
+    QueryTab.pnlMemo.Height := OldTab.pnlMemo.Height
+  else
+    QueryTab.pnlMemo.Height := AppSettings.GetDefaultInt(asQuerymemoheight);
   QueryTab.pnlMemo.Constraints := pnlQueryMemo.Constraints;
 
   QueryTab.Memo := TSynMemo.Create(QueryTab.pnlMemo);
+  QueryTab.Memo.Name := SynMemoQuery.Name + i.ToString;
+  QueryTab.Memo.Text := '';
   QueryTab.Memo.Parent := QueryTab.pnlMemo;
   QueryTab.Memo.Align := SynMemoQuery.Align;
   QueryTab.Memo.Constraints := SynMemoQuery.Constraints;
@@ -11379,13 +11467,13 @@ begin
   QueryTab.Memo.Gutter.Assign(SynMemoQuery.Gutter);
   QueryTab.Memo.Font.Assign(SynMemoQuery.Font);
   QueryTab.Memo.ActiveLineColor := SynMemoQuery.ActiveLineColor;
+  QueryTab.Memo.OnChange := SynMemoQuery.OnChange;
   QueryTab.Memo.OnDragDrop := SynMemoQuery.OnDragDrop;
   QueryTab.Memo.OnDragOver := SynMemoQuery.OnDragOver;
   QueryTab.Memo.OnDropFiles := SynMemoQuery.OnDropFiles;
   QueryTab.Memo.OnKeyPress := SynMemoQuery.OnKeyPress;
   QueryTab.Memo.OnMouseWheel := SynMemoQuery.OnMouseWheel;
   QueryTab.Memo.OnReplaceText := SynMemoQuery.OnReplaceText;
-  QueryTab.Memo.OnStatusChange := SynMemoQuery.OnStatusChange;
   QueryTab.Memo.OnPaintTransient := SynMemoQuery.OnPaintTransient;
   SynCompletionProposal.AddEditor(QueryTab.Memo);
 
@@ -11398,14 +11486,20 @@ begin
   QueryTab.spltHelpers.Width := spltQueryHelpers.Width;
 
   QueryTab.pnlHelpers := TPanel.Create(QueryTab.pnlMemo);
+  QueryTab.pnlHelpers.Name := pnlQueryHelpers.Name + i.ToString;
   QueryTab.pnlHelpers.Parent := QueryTab.pnlMemo;
   QueryTab.pnlHelpers.Align := pnlQueryHelpers.Align;
   QueryTab.pnlHelpers.Constraints := pnlQueryHelpers.Constraints;
   QueryTab.pnlHelpers.BevelOuter := pnlQueryHelpers.BevelOuter;
   QueryTab.pnlHelpers.Left := pnlQueryHelpers.Left;
-  QueryTab.pnlHelpers.Width := pnlQueryHelpers.Width;
+  if Assigned(OldTab) then
+    QueryTab.pnlHelpers.Width := OldTab.pnlHelpers.Width
+  else
+    QueryTab.pnlHelpers.Width := AppSettings.GetDefaultInt(asQueryhelperswidth);
 
   QueryTab.filterHelpers := TButtonedEdit.Create(QueryTab.pnlHelpers);
+  QueryTab.filterHelpers.Name := filterQueryHelpers.Name + i.ToString;
+  QueryTab.filterHelpers.Text := '';
   QueryTab.filterHelpers.Parent := QueryTab.pnlHelpers;
   QueryTab.filterHelpers.Align := filterQueryHelpers.Align;
   QueryTab.filterHelpers.TextHint := filterQueryHelpers.TextHint;
@@ -11418,6 +11512,7 @@ begin
   QueryTab.filterHelpers.OnRightButtonClick := filterQueryHelpers.OnRightButtonClick;
 
   QueryTab.treeHelpers := TVirtualStringTree.Create(QueryTab.pnlHelpers);
+  QueryTab.treeHelpers.Name := treeQueryHelpers.Name + i.ToString;
   QueryTab.treeHelpers.Parent := QueryTab.pnlHelpers;
   QueryTab.treeHelpers.Align := treeQueryHelpers.Align;
   QueryTab.treeHelpers.Left := treeQueryHelpers.Left;
@@ -11466,6 +11561,7 @@ begin
   QueryTab.ResultTabs := TResultTabs.Create(True);
 
   QueryTab.tabsetQuery := TTabSet.Create(QueryTab.TabSheet);
+  QueryTab.tabsetQuery.Name := tabsetQuery.Name + i.ToString;
   QueryTab.tabsetQuery.Parent := QueryTab.TabSheet;
   // Prevent various problems with alignment of controls. See http://www.heidisql.com/forum.php?t=18924
   QueryTab.tabsetQuery.Top := QueryTab.spltQuery.Top + QueryTab.spltQuery.Height;
@@ -11526,6 +11622,33 @@ begin
 end;
 
 
+procedure TMainForm.menuCloseRightQueryTabsClick(Sender: TObject);
+var
+  aPoint: TPoint;
+  i, PageIndexClick: Integer;
+begin
+  // Close tabs to the right
+  aPoint := PageControlMain.ScreenToClient(popupMainTabs.PopupPoint);
+  PageIndexClick := GetMainTabAt(aPoint.X, aPoint.Y);
+  if PageIndexClick > -1 then begin
+    for i:=PageControlMain.PageCount-1 downto PageIndexClick+1 do begin
+      CloseQueryTab(PageControlMain.Pages[i].PageIndex);
+    end;
+  end;
+end;
+
+
+procedure TMainForm.actCloseAllQueryTabsExecute(Sender: TObject);
+var
+  i: Integer;
+begin
+  // Close all tabs
+  for i:=PageControlMain.PageCount-1 downto tabQuery.PageIndex do begin
+    CloseQueryTab(PageControlMain.Pages[i].PageIndex);
+  end;
+end;
+
+
 procedure TMainForm.actRenameQueryTabExecute(Sender: TObject);
 var
   aPoint: TPoint;
@@ -11563,17 +11686,18 @@ end;
 procedure TMainForm.popupMainTabsPopup(Sender: TObject);
 var
   aPoint: TPoint;
-  PageIndex: Integer;
+  PageIndexClick: Integer;
 begin
   // Detect if there is a tab under mouse position
   aPoint := PageControlMain.ScreenToClient(popupMainTabs.PopupPoint);
-  PageIndex := GetMainTabAt(aPoint.X, aPoint.Y);
+  PageIndexClick := GetMainTabAt(aPoint.X, aPoint.Y);
   menuCloseQueryTab.ImageIndex := actCloseQueryTab.ImageIndex;
   menuCloseQueryTab.Caption := actCloseQueryTab.Caption;
-  menuCloseQueryTab.Enabled := IsQueryTab(PageIndex, False);
+  menuCloseQueryTab.Enabled := IsQueryTab(PageIndexClick, False);
+  menuCloseRightQueryTabs.Enabled := (QueryTabs.Count > 0) and (PageIndexClick < QueryTabs.Last.TabSheet.PageIndex) and (PageIndexClick > -1);
   menuRenameQueryTab.ImageIndex := actRenameQueryTab.ImageIndex;
   menuRenameQueryTab.Caption := actRenameQueryTab.Caption;
-  menuRenameQueryTab.Enabled := IsQueryTab(PageIndex, True);
+  menuRenameQueryTab.Enabled := IsQueryTab(PageIndexClick, True);
 end;
 
 
@@ -11880,18 +12004,6 @@ begin
 end;
 
 
-function TMainForm.ActiveQueryTab: TQueryTab;
-var
-  idx: Integer;
-begin
-  idx := PageControlMain.ActivePageIndex-tabQuery.PageIndex;
-  if (idx >= 0) and (idx < QueryTabs.Count) then
-    Result := QueryTabs[idx]
-  else
-    Result := nil;
-end;
-
-
 function TMainForm.GetOrCreateEmptyQueryTab(DoFocus: Boolean): TQueryTab;
 var
   i: Integer;
@@ -11899,7 +12011,7 @@ begin
   // Return either a) current query tab if one is active
   // or b) the first empty one
   // or c) create a new one
-  // Result should never be nil, unlike in ActiveQueryTab
+  // Result should never be nil, unlike in QueryTabs.ActiveTab
   Result := nil;
   // Search empty tab
   for i:=0 to QueryTabs.Count-1 do begin
@@ -11921,60 +12033,6 @@ begin
 end;
 
 
-function TMainForm.GetQueryTabByNumber(Number: Integer): TQueryTab;
-var
-  i: Integer;
-begin
-  // Find right query tab
-  Result := nil;
-  for i:=0 to QueryTabs.Count-1 do begin
-    if QueryTabs[i].Number = Number then begin
-      Result := QueryTabs[i];
-      break;
-    end;
-  end;
-end;
-
-
-function TMainForm.GetQueryTabByHelpers(FindTree: TBaseVirtualTree): TQueryTab;
-var
-  Tab: TQueryTab;
-begin
-  // Find query tab where passed treeHelpers resides
-  Result := nil;
-  for Tab in QueryTabs do begin
-    if Tab.treeHelpers = FindTree then begin
-      Result := Tab;
-      break;
-    end;
-  end;
-end;
-
-
-function TMainForm.ActiveQueryMemo: TSynMemo;
-var
-  Tab: TQueryTab;
-begin
-  // Return current query memo
-  Tab := ActiveQueryTab;
-  Result := nil;
-  if Tab <> nil then
-    Result := Tab.Memo;
-end;
-
-
-function TMainForm.ActiveQueryHelpers: TVirtualStringTree;
-var
-  Tab: TQueryTab;
-begin
-  // Return current query helpers tree
-  Tab := ActiveQueryTab;
-  Result := nil;
-  if Tab <> nil then
-    Result := Tab.treeHelpers;
-end;
-
-
 function TMainForm.ActiveSynMemo(AcceptReadOnlyMemo: Boolean): TSynMemo;
 var
   Control: TWinControl;
@@ -11987,17 +12045,25 @@ begin
     if (not AcceptReadOnlyMemo) and Result.ReadOnly then
       Result := nil;
   end;
-  if (not Assigned(Result)) and QueryTabActive then
-    Result := ActiveQueryMemo;
+  if (not Assigned(Result)) and QueryTabs.HasActiveTab then
+    Result := QueryTabs.ActiveMemo;
+  if (not Assigned(Result)) and (Screen.ActiveForm is TfrmTextEditor) then begin
+    Result := TfrmTextEditor(Screen.ActiveForm).MemoText;
+  end;
+
 end;
 
 
 function TMainForm.ActiveGrid: TVirtualStringTree;
 begin
+  // Return current data or query grid, if main form is active
   Result := nil;
-  if PageControlMain.ActivePage = tabData then Result := DataGrid
-  else if (ActiveQueryTab <> nil) and (ActiveQueryTab.ActiveResultTab <> nil) then
-    Result := ActiveQueryTab.ActiveResultTab.Grid;
+  if Screen.ActiveForm <> Self then
+    Exit;
+  if PageControlMain.ActivePage = tabData then
+    Result := DataGrid
+  else if (QueryTabs.ActiveTab <> nil) and (QueryTabs.ActiveTab.ActiveResultTab <> nil) then
+    Result := QueryTabs.ActiveTab.ActiveResultTab.Grid;
 end;
 
 
@@ -12029,12 +12095,6 @@ begin
   end;
 end;
 
-
-function TMainForm.QueryTabActive: Boolean;
-begin
-  // Find out if the active main tab is a query tab
-  Result := IsQueryTab(PageControlMain.ActivePageIndex, True);
-end;
 
 function TMainForm.IsQueryTab(PageIndex: Integer; IncludeFixed: Boolean): Boolean;
 var
@@ -12234,7 +12294,7 @@ begin
     else if tab = tabDatabase then f := FFilterTextDatabase
     else if tab = tabEditor then f := FFilterTextEditor
     else if tab = tabData then f := FFilterTextData
-    else if QueryTabActive and (ActiveQueryTab.ActiveResultTab <> nil) then f := ActiveQueryTab.ActiveResultTab.FilterText;
+    else if QueryTabs.HasActiveTab and (QueryTabs.ActiveTab.ActiveResultTab <> nil) then f := QueryTabs.ActiveTab.ActiveResultTab.FilterText;
     if editFilterVT.Text <> f then
       editFilterVT.Text := f
     else
@@ -12303,7 +12363,6 @@ begin
     Editor.Font.Name := AppSettings.ReadString(asFontName);
     Editor.Font.Size := AppSettings.ReadInt(asFontSize);
     Editor.Gutter.BorderColor := GetThemeColor(clWindow);
-    Editor.Gutter.Color := GetThemeColor(clBtnFace);
     Editor.Gutter.Font.Name := Editor.Font.Name;
     Editor.Gutter.Font.Size := Editor.Font.Size;
     Editor.Gutter.Font.Color := BaseEditor.Gutter.Font.Color;
@@ -12424,7 +12483,7 @@ begin
   MenuItem := (Sender as TMenuItem);
   ColumnNames := TStringList.Create;
   DefaultValues := TStringList.Create;
-  Tree := ActiveQueryHelpers;
+  Tree := QueryTabs.ActiveHelpersTree;
   Node := Tree.GetFirstChild(FindNode(Tree, TQueryTab.HelperNodeColumns, nil));
   while Assigned(Node) do begin
     if Tree.Selected[Node] then begin
@@ -12461,13 +12520,13 @@ begin
 
 
   if MenuItem = menuQueryHelpersGenerateSelect then begin
-    sql := 'SELECT '+ImplodeStr(', ', ColumnNames)+CRLF+
+    sql := 'SELECT '+Implode(', ', ColumnNames)+CRLF+
       #9'FROM '+ActiveDbObj.QuotedName(False);
 
   end else if MenuItem = menuQueryHelpersGenerateInsert then begin
     sql := 'INSERT INTO '+ActiveDbObj.QuotedName(False)+CRLF+
-      #9'('+ImplodeStr(', ', ColumnNames)+')'+CRLF+
-      #9'VALUES ('+ImplodeStr(', ', DefaultValues)+')';
+      #9'('+Implode(', ', ColumnNames)+')'+CRLF+
+      #9'VALUES ('+Implode(', ', DefaultValues)+')';
 
   end else if MenuItem = menuQueryHelpersGenerateUpdate then begin
     sql := 'UPDATE '+ActiveDbObj.QuotedName(False)+CRLF+#9'SET'+CRLF;
@@ -12484,8 +12543,8 @@ begin
     sql := 'DELETE FROM '+ActiveDbObj.QuotedName(False)+' WHERE ' + WhereClause;
 
   end;
-  ActiveQueryMemo.UndoList.AddGroupBreak;
-  ActiveQueryMemo.SelText := sql;
+  QueryTabs.ActiveMemo.UndoList.AddGroupBreak;
+  QueryTabs.ActiveMemo.SelText := sql;
 end;
 
 
@@ -12703,10 +12762,10 @@ begin
     x := Grid.FocusedColumn+1;
     if Grid.SelectedCount > 1 then
       AppendMsg := ' ('+FormatNumber(Grid.SelectedCount)+' sel)';
-  end else if QueryTabActive and ActiveQueryMemo.Focused then begin
-    x := ActiveQueryMemo.CaretX;
-    y := ActiveQueryMemo.CaretY;
-    AppendMsg := ' ('+FormatByteNumber(ActiveQueryMemo.GetTextLen)+')';
+  end else if QueryTabs.HasActiveTab and QueryTabs.ActiveMemo.Focused then begin
+    x := QueryTabs.ActiveMemo.CaretX;
+    y := QueryTabs.ActiveMemo.CaretY;
+    AppendMsg := ' ('+FormatByteNumber(QueryTabs.ActiveMemo.GetTextLen)+')';
   end;
   if (x > -1) and (y > -1) then begin
     ShowStatusMsg('r'+FormatNumber(y)+' : c'+FormatNumber(x) + AppendMsg, 1)
@@ -12906,7 +12965,7 @@ begin
     and (Column=1)
     and (Sender.GetNodeLevel(Node)=1)
     then begin
-    Tab := GetQueryTabByHelpers(Sender);
+    Tab := QueryTabs.TabByControl(Sender);
     if Tab <> nil then begin
       Tab.QueryProfile.RecNo := Node.Index;
       PaintColorBar(MakeFloat(Tab.QueryProfile.Col(Column)), Tab.MaxProfileTime, TargetCanvas, CellRect);
@@ -12915,7 +12974,7 @@ begin
   if (Sender.GetNodeLevel(Node)=2)
     and (Column=1)
     and (Node.Parent.Parent.Index=TQueryTab.HelperNodeHistory) then begin
-    Tab := GetQueryTabByHelpers(Sender);
+    Tab := QueryTabs.TabByControl(Sender);
     if Tab <> nil then begin
       History := Tab.HistoryDays.Objects[Node.Parent.Index] as TQueryHistory;
       PaintColorBar(History[Node.Index].Duration, History.MaxDuration, TargetCanvas, CellRect);
@@ -12941,7 +13000,7 @@ begin
   if (Sender.GetNodeLevel(Node)=2)
     and (Node.Parent.Parent.Index=TQueryTab.HelperNodeHistory)
     and (ActiveConnection <> nil) then begin
-    Tab := GetQueryTabByHelpers(Sender);
+    Tab := QueryTabs.TabByControl(Sender);
     if Tab <> nil then begin
       History := Tab.HistoryDays.Objects[Node.Parent.Index] as TQueryHistory;
       if ActiveConnection.Database <> History[Node.Index].Database then
@@ -12953,7 +13012,7 @@ begin
   if (Sender.GetNodeLevel(Node)=1)
     and (Column=1)
     and (Node.Parent.Index=TQueryTab.HelperNodeBinding) then begin
-      Tab := GetQueryTabByHelpers(Sender);
+      Tab := QueryTabs.TabByControl(Sender);
       if StrLen(PChar(Tab.ListBindParams.Items[Node.Index].Value)) = 0 then
         TargetCanvas.Font.Style := [fsItalic]+[fsUnderline];
 
@@ -12982,7 +13041,7 @@ procedure TMainForm.treeQueryHelpersDblClick(Sender: TObject);
 var
   m: TSynMemo;
 begin
-  m := ActiveQueryMemo;
+  m := QueryTabs.ActiveMemo;
   m.DragDrop(Sender, m.CaretX, m.CaretY);
 end;
 
@@ -13025,7 +13084,7 @@ begin
   // Free some memory, taken by probably big SQL query history items
   if (Sender.GetNodeLevel(Node)=1)
     and (Node.Parent.Index = TQueryTab.HelperNodeHistory) then begin
-    Tab := GetQueryTabByHelpers(Sender);
+    Tab := QueryTabs.TabByControl(Sender);
     if Tab <> nil then begin
       Tab.HistoryDays.Objects[Node.Index].Free;
       Tab.HistoryDays.Delete(Node.Index);
@@ -13076,7 +13135,7 @@ var
 begin
   // Query helpers tree fetching node text
   CellText := '';
-  Tab := GetQueryTabByHelpers(Sender);
+  Tab := QueryTabs.TabByControl(Sender);
   case Column of
     0: case Sender.GetNodeLevel(Node) of
         0: case Node.Index of
@@ -13115,7 +13174,7 @@ begin
              end;
              TQueryTab.HelperNodeFunctions: CellText := MySQLFunctions[Node.Index].Name;
              TQueryTab.HelperNodeKeywords: CellText := MySQLKeywords[Node.Index];
-             TQueryTab.HelperNodeSnippets: CellText := IfThen(Node.Index<FSnippetFilenames.Count, FSnippetFilenames[Node.Index], '');
+             TQueryTab.HelperNodeSnippets: CellText := IfThen(Node.Index < Cardinal(FSnippetFilenames.Count), FSnippetFilenames[Node.Index], '');
              TQueryTab.HelperNodeHistory: begin
                CellText := Tab.HistoryDays[Node.Index];
                if CellText = DateToStr(Today) then
@@ -13204,7 +13263,7 @@ var
   QueryTab: TQueryTab;
 begin
   Tree:= Sender as TVirtualStringTree;
-  QueryTab := ActiveQueryTab;
+  QueryTab := QueryTabs.ActiveTab;
 
   // Save new param value
   QueryTab.ListBindParams.Items[Sender.FocusedNode.Index].Value := NewText;
@@ -13235,7 +13294,7 @@ var
   i: Integer;
   Conn: TDBConnection;
 begin
-  Tab := GetQueryTabByHelpers(Sender);
+  Tab := QueryTabs.TabByControl(Sender);
   Conn := ActiveConnection;
   case Sender.GetNodeLevel(Node) of
     0: case Node.Index of
@@ -13329,7 +13388,7 @@ var
   Tree: TVirtualStringTree;
 begin
   Tree := Sender as TVirtualStringTree;
-  Tab := GetQueryTabByHelpers(Sender);
+  Tab := QueryTabs.TabByControl(Sender);
 
   case Sender.GetNodeLevel(Node) of
 
@@ -13436,41 +13495,42 @@ begin
   if not Assigned(QueryTabs) then
     Exit;
   Conn := ActiveConnection;
-  for Tab in QueryTabs do begin
-    Node := FindNode(Tab.treeHelpers, NodeIndex, nil);
-    // Store node + children states
-    OldStates := Node.States;
-    OldCheckState := Node.CheckState;
-    ExpandedChildren := TStringList.Create;
+  Tab := QueryTabs.ActiveTab;
+  if Tab = nil then
+    Exit;
+  Node := FindNode(Tab.treeHelpers, NodeIndex, nil);
+  // Store node + children states
+  OldStates := Node.States;
+  OldCheckState := Node.CheckState;
+  ExpandedChildren := TStringList.Create;
+  Child := Tab.treeHelpers.GetFirstChild(Node);
+  while Assigned(Child) do begin
+    if vsExpanded in Child.States then
+      ExpandedChildren.Add(IntToStr(Child.Index));
+    Child := Tab.treeHelpers.GetNextSibling(Child);
+  end;
+  // Keep scroll offset
+  Tab.treeHelpers.BeginUpdate;
+  // Remove children and grandchildren
+  Tab.treeHelpers.ResetNode(Node);
+  // Restore old node + children states
+  Tab.treeHelpers.CheckState[Node] := OldCheckState;
+  Tab.treeHelpers.Expanded[Node] := vsExpanded in OldStates;
+  // Disable profiling when not on MySQL
+  if (NodeIndex = TQueryTab.HelperNodeProfile) and (Conn <> nil) and (not Conn.Parameters.IsAnyMySQL) then begin
+    Tab.treeHelpers.CheckState[Node] := csUncheckedNormal;
+  end;
+  // Do not check expansion state of children unless the parent node is expanded, to avoid
+  // initializing children when not required. Accesses registry items when doing so.
+  if Tab.treeHelpers.Expanded[Node] then begin
     Child := Tab.treeHelpers.GetFirstChild(Node);
     while Assigned(Child) do begin
-      if vsExpanded in Child.States then
-        ExpandedChildren.Add(IntToStr(Child.Index));
+      Tab.treeHelpers.Expanded[Child] := ExpandedChildren.IndexOf(IntToStr(Child.Index)) > -1;
       Child := Tab.treeHelpers.GetNextSibling(Child);
     end;
-    // Keep scroll offset
-    Tab.treeHelpers.BeginUpdate;
-    // Remove children and grandchildren
-    Tab.treeHelpers.ResetNode(Node);
-    // Restore old node + children states
-    Tab.treeHelpers.CheckState[Node] := OldCheckState;
-    Tab.treeHelpers.Expanded[Node] := vsExpanded in OldStates;
-    // Disable profiling when not on MySQL
-    if (NodeIndex = TQueryTab.HelperNodeProfile) and (Conn <> nil) and (not Conn.Parameters.IsAnyMySQL) then begin
-      Tab.treeHelpers.CheckState[Node] := csUncheckedNormal;
-    end;
-    // Do not check expansion state of children unless the parent node is expanded, to avoid
-    // initializing children when not required. Accesses registry items when doing so.
-    if Tab.treeHelpers.Expanded[Node] then begin
-      Child := Tab.treeHelpers.GetFirstChild(Node);
-      while Assigned(Child) do begin
-        Tab.treeHelpers.Expanded[Child] := ExpandedChildren.IndexOf(IntToStr(Child.Index)) > -1;
-        Child := Tab.treeHelpers.GetNextSibling(Child);
-      end;
-    end;
-    ExpandedChildren.Free;
-    Tab.treeHelpers.EndUpdate;
   end;
+  ExpandedChildren.Free;
+  Tab.treeHelpers.EndUpdate;
 end;
 
 
@@ -13518,8 +13578,10 @@ var
   rx: TRegExpr;
   TextMatches: Boolean;
   PressedShortcut: TShortCut;
+  Act: TContainedAction;
 begin
   // Support for Ctrl+Backspace shortcut in edit + combobox controls
+  //LogSQL(msg.CharCode.ToString);
   Handled := False;
   if (Msg.CharCode = VK_BACK) and KeyPressed(VK_CONTROL) then begin
     SendingControl := Screen.ActiveControl;
@@ -13556,10 +13618,22 @@ begin
   end else begin
     // Listen to certain shortcut(s) in other forms than mainform, which do not listen to ActionList
     PressedShortcut := ShortCut(Msg.CharCode, KeyDataToShiftState(Msg.KeyData));
-    if PressedShortcut = actSynEditCompletionPropose.ShortCut then begin
-      actSynEditCompletionPropose.Execute;
-      Handled := True;
+    for Act in ActionList1 do begin
+      if (Act = actSynEditCompletionPropose)
+        or (Act = actQueryFind) // Support find/replace on grid text editor
+        or (Act = actQueryFindAgain)
+        or (Act = actQueryReplace)
+        then begin
+
+        if PressedShortcut = Act.ShortCut then begin
+          Act.Execute;
+          Handled := True;
+          Break;
+        end;
+
+      end;
     end;
+
   end;
 end;
 
@@ -13568,7 +13642,13 @@ begin
   // Prevent completion window from showing up after Alt-Tab. See issue #2640
   // and issue #3342
   // Does not work for some reason in TApplicationEvents.OnDeactivate
-  SynCompletionProposal.Form.Enabled := False;
+  // Triggers an EAccessViolation when changing some VCL styles
+  try
+    SynCompletionProposal.Form.Enabled := False;
+  except
+    on E:EAccessViolation do
+      LogSQL(E.Message, lcError);
+  end;
   // Gets activated again in SynCompletionProposalExecute
 end;
 
@@ -13622,10 +13702,10 @@ begin
       else
         Sel[i] := '-- '+Sel[i];
     end;
-    Editor.SelText := ImplodeStr(CRLF, Sel);
+    Editor.SelText := Implode(CRLF, Sel);
   end;
   if Assigned(Editor.OnChange) then
-    Editor.OnChange(Sender);
+    Editor.OnChange(Editor);
 end;
 
 
@@ -13645,7 +13725,7 @@ begin
   SetProgressPosition(0);
   ProgressBarStatus.Hide;
   if Assigned(TaskBarList3) then
-    TaskBarList3.SetProgressState(Application.MainForm.Handle, 0);
+    TaskBarList3.SetProgressState(Handle, 0);
 end;
 
 
@@ -13662,7 +13742,7 @@ begin
   end;
   ProgressBarStatus.Repaint;
   if Assigned(TaskBarList3) then
-    TaskBarList3.SetProgressValue(Application.MainForm.Handle, Value, ProgressBarStatus.Max);
+    TaskBarList3.SetProgressValue(Handle, Value, ProgressBarStatus.Max);
 end;
 
 
@@ -13686,7 +13766,7 @@ begin
       pbsPaused: Flag := 8;
       else Flag := 0;
     end;
-    TaskBarList3.SetProgressState(Application.MainForm.Handle, Flag);
+    TaskBarList3.SetProgressState(Handle, Flag);
   end;
 end;
 
@@ -13751,7 +13831,7 @@ var
   Tab: TQueryTab;
 begin
   // Go back to the result tab left to the active one
-  Tab := ActiveQueryTab;
+  Tab := QueryTabs.ActiveTab;
   if Tab <> nil then begin
     if Tab.tabsetQuery.TabIndex > 0 then
       Tab.tabsetQuery.SelectNext(False)
@@ -13766,7 +13846,7 @@ var
   Tab: TQueryTab;
 begin
   // Advance to the next result tab
-  Tab := ActiveQueryTab;
+  Tab := QueryTabs.ActiveTab;
   if Tab <> nil then begin
     if Tab.tabsetQuery.TabIndex < Tab.tabsetQuery.Tabs.Count-1 then
       Tab.tabsetQuery.SelectNext(True)
@@ -13854,6 +13934,11 @@ var
   IsCurrentFile: Boolean;
 begin
   // Notification about file changes in loaded file's directory
+
+  if FDirectoryWatchNotficationRunning then
+    Exit;
+  FDirectoryWatchNotficationRunning := True;
+
   IsCurrentFile := DirectoryWatch.Directory + FileName = MemoFilename;
   case Action of
     waRemoved:
@@ -13881,15 +13966,7 @@ begin
       end;
 
   end;
-end;
-
-
-procedure TQueryTab.SetMemo(Value: TSynMemo);
-begin
-  // Apply existing SynMemo and its events (only OnChange yet).
-  // TODO: Move more Memo events from TMainForm.actNewQueryTabExecute here, and keep there procedures in TQueryTab.
-  FMemo := Value;
-  FMemo.OnChange := MemoOnChange;
+  FDirectoryWatchNotficationRunning := False;
 end;
 
 
@@ -13899,6 +13976,9 @@ var
   OldCursor: TBufferCoord;
 begin
   (Sender as TTimer).Enabled := False;
+  if FDirectoryWatchNotficationRunning then
+    Exit;
+  FDirectoryWatchNotficationRunning := True;
   if MessageDialog(_('Reload file?'), f_('File was modified from outside: %s', [MemoFilename]), mtConfirmation, [mbYes, mbCancel]) = mrYes then begin
     OldCursor := Memo.CaretXY;
     OldTopLine := Memo.TopLine;
@@ -13906,27 +13986,37 @@ begin
     Memo.CaretXY := OldCursor;
     Memo.TopLine := OldTopLine;
   end;
+  FDirectoryWatchNotficationRunning := False;
 end;
 
 
-function TQueryTab.LoadContents(Filename: String; ReplaceContent: Boolean; Encoding: TEncoding): Boolean;
+function TQueryTab.LoadContents(Filepath: String; ReplaceContent: Boolean; Encoding: TEncoding): Boolean;
 var
   Content: String;
   Filesize: Int64;
   LineBreaks: TLineBreaks;
+  LoadSuccess: Boolean;
 begin
-  Result := False;
   // Load file and add that to the undo-history of SynEdit.
   // Normally we would do a simple SynMemo.Lines.LoadFromFile but
   // this would prevent SynEdit from adding this step to the undo-history
   // so we have to do it by replacing the SelText property
+  Result := False;
   Screen.Cursor := crHourGlass;
-  Filesize := _GetFileSize(filename);
-  MainForm.LogSQL(f_('Loading file "%s" (%s) into query tab #%d ...', [Filename, FormatByteNumber(Filesize), Number]), lcInfo);
+  Filesize := _GetFileSize(Filepath);
+  LoadSuccess := False;
+  MainForm.LogSQL(f_('Loading file "%s" (%s) into query tab #%d ...', [Filepath, FormatByteNumber(Filesize), Number]), lcInfo);
   try
-    Content := ReadTextfile(Filename, Encoding);
-    if Pos(AppSettings.DirnameSnippets, Filename) = 0 then
-      MainForm.AddOrRemoveFromQueryLoadHistory(Filename, True, True);
+    Content := ReadTextfile(Filepath, Encoding);
+    LoadSuccess := True;
+  except on E:Exception do
+    // File does not exist, is locked or broken
+    ErrorDialog(E.message + sLineBreak + sLineBreak + Filepath);
+  end;
+
+  if LoadSuccess then begin
+    if Pos(AppSettings.DirnameSnippets, Filepath) = 0 then
+      MainForm.AddOrRemoveFromQueryLoadHistory(Filepath, True, True);
     Memo.UndoList.AddGroupBreak;
     Memo.BeginUpdate;
     LineBreaks := ScanLineBreaks(Content);
@@ -13946,12 +14036,10 @@ begin
     Memo.SelStart := Memo.SelEnd;
     Memo.EndUpdate;
     Memo.Modified := False;
-    MemoFilename := Filename;
+    MemoFilename := Filepath;
     Result := True;
-  except on E:Exception do
-    // File does not exist, is locked or broken
-    ErrorDialog(E.message + CRLF + CRLF + Filename);
   end;
+
   Screen.Cursor := crDefault;
 end;
 
@@ -14056,8 +14144,10 @@ var
   Node: PVirtualNode;
 begin
   // Return state of bind params checkbox
+  Result := False;
   Node := FindNode(treeHelpers, TQueryTab.HelperNodeBinding, nil);
-  Result := treeHelpers.CheckState[Node] in CheckedStates;
+  if Assigned(Node) then
+    Result := treeHelpers.CheckState[Node] in CheckedStates;
 end;
 
 
@@ -14092,16 +14182,6 @@ begin
   // Marker for query tab that it is currently executing and waiting for a query
   FQueryRunning := Value;
   TimerStatusUpdate.Enabled := Value;
-end;
-
-
-procedure TQueryTab.MemoOnChange(Sender: TObject);
-begin
-  // Check if bind param detection is enabled for text size <1M
-  // Uncheck checkbox if it's bigger
-  TimerLastChange.Enabled := False;
-  FLastChange := Now;
-  TimerLastChange.Enabled := True;
 end;
 
 
@@ -14199,6 +14279,88 @@ begin
   end;
 end;
 
+
+{ TQueryTabList }
+
+function TQueryTabList.ActiveTab: TQueryTab;
+var
+  idx: Integer;
+  FixedTab: TQueryTab;
+begin
+  // Return active tab
+  Result := nil;
+  if Self.Count < 1 then
+    Exit;
+  FixedTab := Self[0];
+  idx := FixedTab.TabSheet.PageControl.ActivePageIndex - FixedTab.TabSheet.PageIndex;
+  if (idx >= 0) and (idx < Self.Count) then
+    Result := Self[idx];
+end;
+
+
+function TQueryTabList.HasActiveTab: Boolean;
+begin
+  Result := ActiveTab <> nil;
+end;
+
+
+function TQueryTabList.ActiveMemo: TSynMemo;
+var
+  Tab: TQueryTab;
+begin
+  // Return current query memo
+  Result := nil;
+  Tab := ActiveTab;
+  if Assigned(Tab) then
+    Result := Tab.Memo;
+end;
+
+
+function TQueryTabList.ActiveHelpersTree: TVirtualStringTree;
+var
+  Tab: TQueryTab;
+begin
+  // Return current query helpers tree
+  Result := nil;
+  Tab := ActiveTab;
+  if Assigned(Tab) then
+    Result := Tab.treeHelpers;
+end;
+
+
+function TQueryTabList.TabByNumber(Number: Integer): TQueryTab;
+var
+  Tab: TQueryTab;
+begin
+  // Find right query tab
+  Result := nil;
+  for Tab in Self do begin
+    if Tab.Number = Number then begin
+      Result := Tab;
+      break;
+    end;
+  end;
+end;
+
+
+function TQueryTabList.TabByControl(Control: TWinControl): TQueryTab;
+var
+  Tab: TQueryTab;
+begin
+  // Find query tab where passed control resides
+  // Supports only most important controls in the upper area, excluding tab close button and result grid
+  Result := nil;
+  for Tab in Self do begin
+    if (Control = Tab.TabSheet)
+      or (Control = Tab.pnlMemo) or (Control = Tab.Memo)
+      or (Control = Tab.pnlHelpers) or (Control = Tab.filterHelpers) or (Control = Tab.treeHelpers)
+      or (Control = Tab.tabsetQuery)
+      then begin
+      Result := Tab;
+      Break;
+    end;
+  end;
+end;
 
 
 
@@ -14368,7 +14530,7 @@ begin
   for Param in Self do begin
     Lines.Add(Param.Name + FPairDelimiter + Param.Value);
   end;
-  Result := implodestr(FItemDelimiter, Lines);
+  Result := Implode(FItemDelimiter, Lines);
   Lines.Free;
 end;
 

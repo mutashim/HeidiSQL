@@ -12,7 +12,7 @@ uses
   Windows, SysUtils, Classes, Controls, Forms, StdCtrls, ComCtrls, Buttons, Dialogs, StdActns,
   VirtualTrees, ExtCtrls, Graphics, SynRegExpr, Math, Generics.Collections, extra_controls,
   dbconnection, apphelpers, Menus, gnugettext, DateUtils, System.Zip, System.UITypes, StrUtils, Messages,
-  SynEdit, SynMemo;
+  SynEdit, SynMemo, ClipBrd, generic_types;
 
 type
   TToolMode = (tmMaintenance, tmFind, tmSQLExport, tmBulkTableEdit);
@@ -88,10 +88,11 @@ type
     tabSQL: TTabSheet;
     memoFindText: TMemo;
     SynMemoFindText: TSynMemo;
-    procedure FormDestroy(Sender: TObject);
+    menuCopyMysqldumpCommand: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure btnHelpMaintenanceClick(Sender: TObject);
+    function GetCheckedObjects(DBNode: PVirtualNode): TDBObjectList;
     procedure TreeObjectsGetText(Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex;
       TextType: TVSTTextType; var CellText: String);
     procedure TreeObjectsInitNode(Sender: TBaseVirtualTree; ParentNode, Node: PVirtualNode;
@@ -134,6 +135,9 @@ type
     procedure CheckAllClick(Sender: TObject);
     procedure TreeObjectsExpanded(Sender: TBaseVirtualTree; Node: PVirtualNode);
     procedure btnExportOptionsClick(Sender: TObject);
+    procedure menuCopyMysqldumpCommandClick(Sender: TObject);
+  const
+    StatusMsg = '%s %s ...';
   private
     { Private declarations }
     FResults: TObjectList<TStringList>;
@@ -151,6 +155,7 @@ type
     FFindSeeResultSQL: TStringList;
     ToFile, ToDir, ToClipboard, ToDb, ToServer: Boolean;
     FObjectSizes, FObjectSizesDone, FObjectSizesDoneExact: Int64;
+    FStartTimeAll: Cardinal;
     procedure WMNCLBUTTONDOWN(var Msg: TWMNCLButtonDown) ; message WM_NCLBUTTONDOWN;
     procedure WMNCLBUTTONUP(var Msg: TWMNCLButtonUp) ; message WM_NCLBUTTONUP;
     procedure SetToolMode(Value: TToolMode);
@@ -177,7 +182,9 @@ uses main, dbstructures;
 
 const
   STRSKIPPED: String = 'Skipped - ';
-  EXPORT_FILE_FOOTER = '/*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '''') */;'+CRLF+
+  EXPORT_FILE_FOOTER =
+    '/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;'+CRLF+
+    '/*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '''') */;'+CRLF+
     '/*!40014 SET FOREIGN_KEY_CHECKS=IFNULL(@OLD_FOREIGN_KEY_CHECKS, 1) */;'+CRLF+
     '/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;'+CRLF+
     '/*!40111 SET SQL_NOTES=IFNULL(@OLD_SQL_NOTES, 1) */;'+CRLF;
@@ -236,6 +243,7 @@ begin
   OUTPUT_DIR := _('Directory - one file per object in database subdirectories');
   OUTPUT_DB := _('Database');
   OUTPUT_SERVER := _('Server')+': ';
+  // Todo: sanitize misleading names
   DATA_NO := _('No data');
   DATA_REPLACE := _('Delete + insert (truncate existing data)');
   DATA_INSERT := _('Insert');
@@ -303,15 +311,6 @@ begin
     menuCheckByType.Add(MenuItem);
   end;
   Obj.Free;
-end;
-
-
-procedure TfrmTableTools.FormDestroy(Sender: TObject);
-begin
-  // Save GUI setup
-  AppSettings.WriteInt(asTableToolsWindowWidth, Width);
-  AppSettings.WriteInt(asTableToolsWindowHeight, Height);
-  AppSettings.WriteInt(asTableToolsTreeWidth, TreeObjects.Width);
 end;
 
 
@@ -384,12 +383,84 @@ begin
 end;
 
 
+procedure TfrmTableTools.menuCopyMysqldumpCommandClick(Sender: TObject);
+var
+  BinPath, ConnectionArguments, FullCommand: String;
+  Arguments, DatabaseNames: TStringList;
+  Conn: TDBConnection;
+  SessionNode, DBNode: PVirtualNode;
+  DBObj: PDBObject;
+begin
+  // Copy command line for use with mysqldump
+  Screen.Cursor := crHourGlass;
+  Conn := MainForm.ActiveConnection;
+
+  BinPath := AppSettings.ReadString(asMySQLBinaries);
+  if (not BinPath.IsEmpty) and (BinPath[Length(BinPath)] <> DirSep) then
+    BinPath := BinPath + DirSep;
+  BinPath := BinPath + IfThen(IsWine, 'mysqldump', 'mysqldump.exe');
+
+  ConnectionArguments := Conn.Parameters.GetExternalCliArguments(nil, nbUnset);
+
+  Arguments := TStringList.Create;
+
+  if chkExportDatabasesDrop.Checked then
+    Arguments.Add('--add-drop-database');
+  if not chkExportDatabasesCreate.Checked then
+    Arguments.Add('--no-create-db');
+  if chkExportTablesDrop.Checked then
+    Arguments.Add('--add-drop-table');
+  if not chkExportTablesCreate.Checked then
+    Arguments.Add('--no-create-info');
+  // Data output. No support for delete+insert - will just use inserts.
+  if comboExportData.Text = DATA_NO then
+    Arguments.Add('--no-data')
+  else if comboExportData.Text = DATA_UPDATE then
+    Arguments.Add('--replace')
+  else if comboExportData.Text = DATA_INSERTNEW then
+    Arguments.Add('--insert-ignore');
+  // Output file. No support for server, database and clipboard
+  if comboExportOutputType.Text = OUTPUT_FILE then
+    Arguments.Add('--result-file="'+comboExportOutputTarget.Text+'"')
+  else if comboExportOutputType.Text = OUTPUT_DIR then
+    Arguments.Add('--tab="'+comboExportOutputTarget.Text+'"');
+
+  // Use checked database names
+  DatabaseNames := TStringList.Create;
+  SessionNode := TreeObjects.GetFirstChild(nil);
+  while Assigned(SessionNode) do begin
+    DBNode := TreeObjects.GetFirstChild(SessionNode);
+    while Assigned(DBNode) do begin
+      if not (DBNode.CheckState in [csUncheckedNormal, csUncheckedPressed]) then begin
+        DBObj := TreeObjects.GetNodeData(DBNode);
+        DatabaseNames.Add(DBObj.Database);
+        // Todo: loop through tables?
+        // CheckedObjects := GetCheckedObjects(DBNode);
+      end;
+      DBNode := TreeObjects.GetNextSibling(DBNode);
+    end;
+    SessionNode := TreeObjects.GetNextSibling(SessionNode);
+  end;
+  Arguments.Add('--databases ' + Implode(' ', DatabaseNames));
+  DatabaseNames.Free;
+
+  FullCommand := BinPath + ConnectionArguments + ' ' + Implode(' ', Arguments);
+  Arguments.Free;
+
+  Clipboard.AsText := FullCommand;
+  Screen.Cursor := crDefault;
+end;
+
+
 procedure TfrmTableTools.FormClose(Sender: TObject; var Action: TCloseAction);
 begin
   // Auto close temorary connection
   if Assigned(FTargetConnection) then
     FreeAndNil(FTargetConnection);
-  Action := caFree;
+  // Save GUI setup
+  AppSettings.WriteInt(asTableToolsWindowWidth, Width);
+  AppSettings.WriteInt(asTableToolsWindowHeight, Height);
+  AppSettings.WriteInt(asTableToolsTreeWidth, TreeObjects.Width);
 end;
 
 
@@ -640,6 +711,43 @@ begin
 end;
 
 
+function TfrmTableTools.GetCheckedObjects(DBNode: PVirtualNode): TDBObjectList;
+var
+  Child, GrandChild: PVirtualNode;
+  ChildObj, GrandChildObj: PDBObject;
+begin
+  // Return list with checked objects from database node
+  // The caller doesn't need to care whether type grouping in tree is activated
+  Result := TDBObjectList.Create(False);
+  Child := TreeObjects.GetFirstChild(DBNode);
+  while Assigned(Child) do begin
+    if Child.CheckState in CheckedStates then begin
+      ChildObj := TreeObjects.GetNodeData(Child);
+
+      case ChildObj.NodeType of
+
+        lntGroup: begin
+          GrandChild := TreeObjects.GetFirstChild(Child);
+          while Assigned(GrandChild) do begin
+            if GrandChild.CheckState in CheckedStates then begin
+              GrandChildObj := TreeObjects.GetNodeData(GrandChild);
+              Result.Add(GrandChildObj^);
+            end;
+            GrandChild := TreeObjects.GetNextSibling(GrandChild);
+          end;
+        end
+
+        else begin
+          Result.Add(ChildObj^);
+        end;
+
+      end;
+    end;
+    Child := TreeObjects.GetNextSibling(Child);
+  end;
+end;
+
+
 procedure TfrmTableTools.Execute(Sender: TObject);
 var
   SessionNode, DBNode: PVirtualNode;
@@ -680,40 +788,6 @@ var
     end;
   end;
 
-  procedure SetCheckedObjects(DBNode: PVirtualNode);
-  var
-    Child, GrandChild: PVirtualNode;
-    ChildObj, GrandChildObj: PDBObject;
-  begin
-    CheckedObjects.Clear;
-    Child := TreeObjects.GetFirstChild(DBNode);
-    while Assigned(Child) do begin
-      if Child.CheckState in CheckedStates then begin
-        ChildObj := TreeObjects.GetNodeData(Child);
-
-        case ChildObj.NodeType of
-
-          lntGroup: begin
-            GrandChild := TreeObjects.GetFirstChild(Child);
-            while Assigned(GrandChild) do begin
-              if GrandChild.CheckState in CheckedStates then begin
-                GrandChildObj := TreeObjects.GetNodeData(GrandChild);
-                CheckedObjects.Add(GrandChildObj^);
-              end;
-              GrandChild := TreeObjects.GetNextSibling(GrandChild);
-            end;
-          end
-
-          else begin
-            CheckedObjects.Add(ChildObj^);
-          end;
-
-        end;
-      end;
-      Child := TreeObjects.GetNextSibling(Child);
-    end;
-  end;
-
 begin
   Screen.Cursor := crHourGlass;
   // Disable critical controls so ProcessMessages is unable to do things while export is in progress
@@ -733,14 +807,16 @@ begin
   ResultGrid.Clear;
   FResults.Clear;
   FFindSeeResultSQL.Clear;
-  CheckedObjects := TDBObjectList.Create(False);
   Triggers := TDBObjectList.Create(False); // False, so we can .Free that object afterwards without loosing the contained objects
   Views := TDBObjectList.Create(False);
   FHeaderCreated := False;
   FCancelled := False;
+
   FObjectSizesDone := 0;
   FObjectSizesDoneExact := 0;
   MainForm.EnableProgress(100);
+  FStartTimeAll := GetTickCount;
+
   SessionNode := TreeObjects.GetFirstChild(nil);
   while Assigned(SessionNode) do begin
     DBNode := TreeObjects.GetFirstChild(SessionNode);
@@ -749,7 +825,7 @@ begin
         Triggers.Clear;
         Views.Clear;
         FSecondExportPass := False;
-        SetCheckedObjects(DBNode);
+        CheckedObjects := GetCheckedObjects(DBNode);
         for DBObj in CheckedObjects do begin
           // Triggers have to be exported at the very end
           if (FToolMode = tmSQLExport) and (DBObj.NodeType = lntTrigger) then
@@ -822,6 +898,8 @@ begin
 
     // Activate ansi mode or whatever again, locally
     Conn.Query('/*!40101 SET SQL_MODE=IFNULL(@OLD_LOCAL_SQL_MODE, '''') */');
+    // Reset timezone for reading to previous value
+    Conn.Query('/*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, ''system'') */');
   end;
   ExportLastDatabase := '';
 
@@ -835,6 +913,7 @@ begin
 
   btnCloseOrCancel.Caption := _('Close');
   btnCloseOrCancel.ModalResult := mrCancel;
+  MainForm.ShowStatusMsg;
   MainForm.DisableProgress;
   tabsTools.Enabled := True;
   treeObjects.Enabled := True;
@@ -999,8 +1078,11 @@ begin
                 + SQL;
           end;
           AddResults(SQL, DBObj.Connection);
-        end else
-          AddNotes(DBObj, f_('%s%s doesn''t have columns of selected type (%s).', [STRSKIPPED, DBObj.ObjType, comboDatatypes.Text]), '');
+        end else begin
+          // Prefer a normal log line, so the "Found rows" column has a number, to fix wrong sorting
+          //AddNotes(DBObj, f_('%s%s doesn''t have columns of selected type (%s).', [STRSKIPPED, DBObj.ObjType, comboDatatypes.Text]), '');
+          AddNotes(DBObj.Database, DBObj.Name, '0', '0%');
+        end;
       end;
     end;
 
@@ -1150,6 +1232,8 @@ begin
   lblCheckedSize.Caption := f_('Selected objects size: %s', [FormatByteNumber(FObjectSizes)]) + '. ' +
     f_('%s%% done', [FormatNumber(Percent, 1)]) + '.';
   MainForm.SetProgressPosition(Round(Percent));
+  MainForm.ShowStatusMsg(Format(StatusMsg, [tabsTools.ActivePage.Caption, FormatTimeNumber((GetTickCount-FStartTimeAll)/1000, True)]));
+  ResultGrid.Header.AutoFitColumns(False);
   Application.ProcessMessages;
 end;
 
@@ -1487,6 +1571,9 @@ begin
   if not Assigned(ExportStream) then begin
     // Very first round here. Prevent "SHOW CREATE db|table" from using double quotes
     DBObj.Connection.Query('/*!40101 SET @OLD_LOCAL_SQL_MODE=@@SQL_MODE, SQL_MODE='''' */');
+    // Set same timezone for reading date/time values as for the output
+    DBObj.Connection.Query('/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */');
+    DBObj.Connection.Query('/*!40103 SET TIME_ZONE=''+00:00'' */');
   end;
 
   if ToServer then
@@ -1542,6 +1629,8 @@ begin
     Header := Header +
       '/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;' + CRLF +
       SetCharsetCode +
+      '/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;' + CRLF +
+      '/*!40103 SET TIME_ZONE=''+00:00'' */;' + CRLF +
       '/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;' + CRLF +
       '/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE=''NO_AUTO_VALUE_ON_ZERO'' */;' + CRLF +
       '/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;' + CRLF;
@@ -1604,6 +1693,8 @@ begin
             Insert('IF NOT EXISTS ', Struc, Pos('TABLE', Struc) + 6);
             if ToDb then
               Insert(Quoter.QuoteIdent(FinalDbName)+'.', Struc, Pos('EXISTS', Struc) + 7 );
+            if ToServer then
+              Struc := TSqlTranspiler.CreateTable(Struc, DBObj.Connection, FTargetConnection);
           end;
 
           lntView: begin
@@ -1889,7 +1980,7 @@ begin
 
   LogRow := FResults.Last;
   if Specs.Count > 0 then begin
-    DBObj.Connection.Query('ALTER TABLE ' + DBObj.QuotedDatabase + '.' + DBObj.QuotedName + ' ' + ImplodeStr(', ', Specs));
+    DBObj.Connection.Query('ALTER TABLE ' + DBObj.QuotedDatabase + '.' + DBObj.QuotedName + ' ' + Implode(', ', Specs));
     LogRow[2] := _('Done');
     LogRow[3] := _('Success');
   end else begin

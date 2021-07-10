@@ -5,7 +5,7 @@ interface
 uses
   Classes, SysUtils, windows, dbstructures, SynRegExpr, Generics.Collections, Generics.Defaults,
   DateUtils, Types, Math, Dialogs, ADODB, DB, DBCommon, ComObj, Graphics, ExtCtrls, StrUtils,
-  gnugettext, AnsiStrings, Controls, Forms, System.IOUtils;
+  gnugettext, AnsiStrings, Controls, Forms, System.IOUtils, generic_types;
 
 
 type
@@ -95,7 +95,7 @@ type
     private
       FConnection: TDBConnection;
     public
-      KeyName, OldKeyName, ReferenceTable, OnUpdate, OnDelete: String;
+      KeyName, OldKeyName, ReferenceDb, ReferenceTable, OnUpdate, OnDelete: String;
       Columns, ForeignColumns: TStringList;
       Modified, Added, KeyNameWasCustomized: Boolean;
       constructor Create(AOwner: TDBConnection);
@@ -301,7 +301,6 @@ type
       function CreateConnection(AOwner: TComponent): TDBConnection;
       function CreateQuery(Connection: TDbConnection): TDBQuery;
       function NetTypeName(LongFormat: Boolean): String;
-      function IsCompatibleToWin10S: Boolean;
       function GetNetTypeGroup: TNetTypeGroup;
       function IsAnyMySQL: Boolean;
       function IsAnyMSSQL: Boolean;
@@ -323,6 +322,7 @@ type
       function DefaultPort: Integer;
       function DefaultUsername: String;
       function DefaultIgnoreDatabasePattern: String;
+      function GetExternalCliArguments(Connection: TDBConnection; ReplacePassword: TThreeStateBoolean): String;
     published
       property IsFolder: Boolean read FIsFolder write FIsFolder;
       property NetType: TNetType read FNetType write FNetType;
@@ -482,7 +482,8 @@ type
       destructor Destroy; override;
       procedure Query(SQL: String; DoStoreResult: Boolean=False; LogCategory: TDBLogCategory=lcSQL); virtual; abstract;
       procedure Log(Category: TDBLogCategory; Msg: String);
-      function EscapeString(Text: String; ProcessJokerChars: Boolean=False; DoQuote: Boolean=True): String;
+      function EscapeString(Text: String; ProcessJokerChars: Boolean=False; DoQuote: Boolean=True): String; overload;
+      function EscapeString(Text: String; Datatype: TDBDatatype): String; overload;
       function QuoteIdent(Identifier: String; AlwaysQuote: Boolean=True; Glue: Char=#0): String;
       function DeQuoteIdent(Identifier: String; Glue: Char=#0): String;
       function QuotedDbAndTableName(DB, Obj: String): String;
@@ -1324,9 +1325,9 @@ begin
     FSessionColor := AppSettings.ReadInt(asTreeBackground);
     FNetType := TNetType(AppSettings.ReadInt(asNetType));
     if (FNetType > High(TNetType)) or (FNetType < Low(TNetType)) then begin
-      ErrorDialog(f_('Broken "NetType" value (%d) found in settings for session "%s".', [Integer(FNetType), FSessionPath])
+      ErrorDialog(f_('Unsupported "NetType" value (%d) found in settings for session "%s".', [Integer(FNetType), FSessionPath])
         +CRLF+CRLF+
-        f_('Please report that on %s', ['https://github.com/HeidiSQL/HeidiSQL'])
+        _('Loaded as MySQL/MariaDB session.')
         );
       FNetType := ntMySQL_TCPIP;
     end;
@@ -1492,7 +1493,7 @@ begin
       ntMSSQL_RPC:              Result := PrefixMssql+' (Windows RPC)';
       ntPgSQL_TCPIP:            Result := PrefixPostgres+' (TCP/IP)';
       ntPgSQL_SSHtunnel:        Result := PrefixPostgres+' (SSH tunnel)';
-      ntSQLite:                 Result := PrefixSqlite+' (Experimental)';
+      ntSQLite:                 Result := PrefixSqlite;
     end;
   end
   else begin
@@ -1516,13 +1517,6 @@ begin
       ngSQLite:                        Result := PrefixSqlite;
     end;
   end;
-end;
-
-
-function TConnectionParameters.IsCompatibleToWin10S: Boolean;
-begin
-  // Using plink on 10S is not possible
-  Result := (FNetType <> ntMySQL_SSHtunnel) and (FNetType <> ntPgSQL_SSHtunnel);
 end;
 
 
@@ -1718,6 +1712,55 @@ begin
     ngPgSQL: Result := '^pg_temp_\d';
     else Result := '';
   end;
+end;
+
+
+function TConnectionParameters.GetExternalCliArguments(Connection: TDBConnection; ReplacePassword: TThreeStateBoolean): String;
+var
+  Args: TStringList;
+begin
+  // for mysql(dump)
+  Args := TStringList.Create;
+  Result := '';
+  if WantSSL then
+    Args.Add('--ssl');
+  if not SSLPrivateKey.IsEmpty then
+    Args.Add('--ssl-key="'+SSLPrivateKey+'"');
+  if not SSLCertificate.IsEmpty then
+    Args.Add('--ssl-cert="'+SSLCertificate+'"');
+  if not SSLCACertificate.IsEmpty then
+    Args.Add('--ssl-ca="'+SSLCACertificate+'"');
+
+  case NetType of
+    ntMySQL_NamedPipe: begin
+      Args.Add('--pipe');
+      Args.Add('--socket="'+Hostname+'"');
+      end;
+    ntMySQL_SSHtunnel: begin
+      Args.Add('--host="localhost"');
+      Args.Add('--port='+IntToStr(SSHLocalPort));
+      end;
+    else begin
+      Args.Add('--host="'+Hostname+'"');
+      Args.Add('--port='+IntToStr(Port));
+      end;
+  end;
+
+  Args.Add('--user="'+Username+'"');
+  if Password <> '' then begin
+    case ReplacePassword of
+      nbTrue: Args.Add('--password="***"');
+      nbFalse: Args.Add('--password="'+StringReplace(Password, '"', '\"', [rfReplaceAll])+'"');
+      nbUnset: Args.Add('--password'); // will prompt
+    end;
+  end;
+  if Compressed then
+    Args.Add('--compress');
+  if Assigned(Connection) and (Connection.Database <> '') then
+    Args.Add('--database="' + Connection.Database + '"');
+
+  Result := ' ' + Implode(' ', Args);
+  Args.Free;
 end;
 
 
@@ -1950,7 +1993,7 @@ begin
       // Move more exact (longer) types to the beginning
       TypesSorted := Explode('|', Types);
       TypesSorted.CustomSort(StringListCompareByLength);
-      Types := ImplodeStr('|', TypesSorted);
+      Types := Implode('|', TypesSorted);
       TypesSorted.Free;
     end;
 
@@ -2060,11 +2103,6 @@ var
 begin
   if Value and (FHandle = nil) then begin
 
-    // Die if trying to run plink on Win10S
-    if RunningOnWindows10S and (not FParameters.IsCompatibleToWin10S) then begin
-      raise EDbError.Create(_('The network type defined for this session is not compatible to your Windows 10 S'));
-    end;
-
     DoBeforeConnect;
 
     // Get handle
@@ -2163,6 +2201,9 @@ begin
 
     // Seems to be still required on some systems, for importing CSV files
     FLib.mysql_options(FHandle, Integer(MYSQL_OPT_LOCAL_INFILE), PAnsiChar('1'));
+
+    // Ensure we have some connection timeout
+    FLib.mysql_options(FHandle, Integer(MYSQL_OPT_CONNECT_TIMEOUT), @FParameters.QueryTimeout);
 
     Connected := FLib.mysql_real_connect(
       FHandle,
@@ -3133,7 +3174,9 @@ begin
       end;
       // more results? -1 = no, >0 = error, 0 = yes (keep looping)
       Inc(FStatementNum);
+      TimerStart := GetTickCount;
       QueryStatus := FLib.mysql_next_result(FHandle);
+      Inc(FLastQueryDuration, GetTickCount - TimerStart);
       if QueryStatus = 0 then
         QueryResult := FLib.mysql_store_result(FHandle)
       else if QueryStatus > 0 then begin
@@ -3591,7 +3634,7 @@ begin
           else
             Rows := GetCol('EXEC sp_helptext '+EscapeString(Obj.Database+'.'+Obj.Name));
           // Do not use Rows.Text, as the rows already include a trailing linefeed
-          Result := implodestr('', Rows);
+          Result := Implode('', Rows);
           Rows.Free;
         end;
         ngPgSQL: begin
@@ -3618,7 +3661,7 @@ begin
               DataType := '';
             Arguments.Add(ArgNames[i] + ' ' + DataType);
           end;
-          Result := Result + '(' + implodestr(', ', Arguments) + ') '+
+          Result := Result + '(' + Implode(', ', Arguments) + ') '+
             'RETURNS '+GetDatatypeByNativeType(MakeInt(ProcDetails.Col('prorettype'))).Name+' '+
             'AS $$ '+ProcDetails.Col('prosrc')+' $$'
             // TODO: 'LANGUAGE SQL IMMUTABLE STRICT'
@@ -3643,7 +3686,7 @@ begin
             Rows := GetCol('EXEC sp_helptext '+EscapeString(Obj.Schema+'.'+Obj.Name))
           else
             Rows := GetCol('EXEC sp_helptext '+EscapeString(Obj.Database+'.'+Obj.Name));
-          Result := implodestr('', Rows);
+          Result := Implode('', Rows);
           Rows.Free;
         end;
         else begin
@@ -3695,7 +3738,7 @@ begin
     end;
   end;
   if Queries.Count > 0 then try
-    PrefetchResults(implodestr(';', Queries));
+    PrefetchResults(Implode(';', Queries));
   except
     on E:EDbError do;
   end;
@@ -4141,7 +4184,7 @@ begin
         ' FROM '+QuoteIdent('pg_catalog')+'.'+QuoteIdent('pg_namespace');
       if Parameters.IsRedshift then begin
         DbQuery := DbQuery + ' WHERE '+QuoteIdent('nspowner')+' != 1'+
-          ' OR '+QuoteIdent('nspname')+' IN ('+EscapeString('pg_catalog')+', '+EscapeString(InfSch)+')';
+          ' OR '+QuoteIdent('nspname')+' IN ('+EscapeString('pg_catalog')+', '+EscapeString('public')+', '+EscapeString(InfSch)+')';
       end;
       DbQuery := DbQuery + ' ORDER BY '+QuoteIdent('nspname');
       FAllDatabases := GetCol(DbQuery);
@@ -4413,6 +4456,23 @@ begin
     // Add surrounding single quotes
     Result := Char(#39) + Result + Char(#39);
   end;
+end;
+
+
+function TDBConnection.EscapeString(Text: String; Datatype: TDBDatatype): String;
+var
+  DoQuote: Boolean;
+const
+  CategoriesNeedQuote = [dtcText, dtcBinary, dtcTemporal, dtcSpatial, dtcOther];
+begin
+  // Quote text based on the passed datatype
+  DoQuote := Datatype.Category in CategoriesNeedQuote;
+  case Datatype.Category of
+    // Some special cases
+    dtcBinary: if ExecRegExpr('^0x[a-fA-F0-9]*$', Text) then DoQuote := False;
+    dtcInteger, dtcReal: if not ExecRegExpr('^\d+(\.\d+)?$', Text) then DoQuote := True;
+  end;
+  Result := EscapeString(Text, False, DoQuote);
 end;
 
 
@@ -5484,6 +5544,7 @@ begin
         Result.Add(ForeignKey);
         ForeignKey.KeyName := ForeignQuery.Col('CONSTRAINT_NAME');
         ForeignKey.OldKeyName := ForeignKey.KeyName;
+        ForeignKey.ReferenceDb := ForeignQuery.Col('UNIQUE_CONSTRAINT_SCHEMA');
         ForeignKey.ReferenceTable := ForeignQuery.Col('UNIQUE_CONSTRAINT_SCHEMA') +
           '.' + ForeignQuery.Col('REFERENCED_TABLE_NAME');
         ForeignKey.OnUpdate := ForeignQuery.Col('UPDATE_RULE');
@@ -5596,6 +5657,7 @@ begin
       Result.Add(ForeignKey);
       ForeignKey.KeyName := ForeignQuery.Col('constraint_name');
       ForeignKey.OldKeyName := ForeignKey.KeyName;
+      ForeignKey.ReferenceDb := ForeignQuery.Col('ref_schema');
       ForeignKey.ReferenceTable := ForeignQuery.Col('ref_schema')+'.'+ForeignQuery.Col('ref_table');
       ForeignKey.OnUpdate := ForeignQuery.Col('update_rule');
       ForeignKey.OnDelete := ForeignQuery.Col('delete_rule');
@@ -5646,15 +5708,36 @@ function TDBConnection.GetTableCheckConstraints(Table: TDBObject): TCheckConstra
 var
   CheckQuery: TDBQuery;
   CheckConstraint: TCheckConstraint;
-  IdxTableName: Integer;
+  ConTableIdx, TconTableIdx: Integer;
 begin
   Result := TCheckConstraintList.Create(True);
-  IdxTableName := FInformationSchemaObjects.IndexOf('CHECK_CONSTRAINTS');
-  if IdxTableName = -1 then
+  ConTableIdx := FInformationSchemaObjects.IndexOf('CHECK_CONSTRAINTS');
+  TconTableIdx := FInformationSchemaObjects.IndexOf('TABLE_CONSTRAINTS');
+  if (ConTableIdx = -1) or (TconTableIdx = -1) then
     Exit;
+
   try
-    CheckQuery := GetResults('SELECT * FROM '+QuoteIdent(InfSch)+'.'+QuoteIdent(FInformationSchemaObjects[IdxTableName])+
-      ' WHERE '+Table.SchemaClauseIS('CONSTRAINT')+' AND TABLE_NAME='+EscapeString(Table.Name));
+    if FParameters.IsMariaDB then begin
+      CheckQuery := GetResults('SELECT CONSTRAINT_NAME, CHECK_CLAUSE'+
+        ' FROM '+QuoteIdent(InfSch)+'.'+QuoteIdent(FInformationSchemaObjects[ConTableIdx])+
+        ' WHERE'+
+        ' '+Table.SchemaClauseIS('CONSTRAINT')+
+        ' AND TABLE_NAME='+EscapeString(Table.Name)
+        );
+    end
+    else begin
+      CheckQuery := GetResults('SELECT tc.CONSTRAINT_NAME, cc.CHECK_CLAUSE'+
+        ' FROM '+QuoteIdent(InfSch)+'.'+QuoteIdent(FInformationSchemaObjects[ConTableIdx])+' AS cc, '+
+        QuoteIdent(InfSch)+'.'+QuoteIdent(FInformationSchemaObjects[TconTableIdx])+' AS tc'+
+        ' WHERE'+
+        ' '+Table.SchemaClauseIS('tc.CONSTRAINT')+
+        ' AND tc.TABLE_NAME='+EscapeString(Table.Name)+
+        ' AND tc.CONSTRAINT_TYPE='+EscapeString('CHECK')+
+        ' AND tc.CONSTRAINT_SCHEMA=cc.CONSTRAINT_SCHEMA'+
+        ' AND tc.CONSTRAINT_NAME=cc.CONSTRAINT_NAME'+
+        IfThen(FParameters.IsAnyPostgreSQL, ' AND cc.CONSTRAINT_NAME NOT LIKE '+EscapeString('%\_not\_null'), '')
+        );
+    end;
     while not CheckQuery.Eof do begin
       CheckConstraint := TCheckConstraint.Create(Self);
       Result.Add(CheckConstraint);
@@ -5667,7 +5750,7 @@ begin
     on E:EDbError do begin
       Log(lcError, 'Detection of check constraints disabled due to error in query');
       // Table is likely not there or does not have expected columns - prevent further queries with the same error:
-      FInformationSchemaObjects.Delete(IdxTableName);
+      FInformationSchemaObjects.Delete(ConTableIdx);
     end;
   end;
 end;
@@ -7723,6 +7806,8 @@ begin
     Result := HexValue(baData);
   end else
     Result := HexValue(Col(Column, IgnoreErrors));
+  if AppSettings.ReadBool(asLowercaseHex) then
+    Result := Result.ToLowerInvariant;
 end;
 
 
@@ -9044,12 +9129,14 @@ end;
 function TDBObject.GetTableColumns: TTableColumnList;
 var
   ColumnsInCache: TTableColumnList;
+  CacheKey: String;
 begin
   // Return columns from table object
-  if not FConnection.FColumnCache.ContainsKey(QuotedDbAndTableName) then begin
-    FConnection.FColumnCache.Add(QuotedDbAndTableName, Connection.GetTableColumns(Self));
+  CacheKey := QuotedDbAndTableName;
+  if not FConnection.FColumnCache.ContainsKey(CacheKey) then begin
+    FConnection.FColumnCache.Add(CacheKey, Connection.GetTableColumns(Self));
   end;
-  FConnection.FColumnCache.TryGetValue(QuotedDbAndTableName, ColumnsInCache);
+  FConnection.FColumnCache.TryGetValue(CacheKey, ColumnsInCache);
   Result := TTableColumnList.Create;
   Result.Assign(ColumnsInCache);
 end;
@@ -9218,7 +9305,7 @@ begin
   s.AddPair('Virtuality', Virtuality);
   s.AddPair('Status', Integer(FStatus).ToString);
 
-  Result := implodestr(DELIMITER, s);
+  Result := Implode(DELIMITER, s);
   s.Free;
   Result := StringReplace(Result, #13, CHR13REPLACEMENT, [rfReplaceAll]);
   Result := StringReplace(Result, #10, CHR10REPLACEMENT, [rfReplaceAll]);
@@ -9498,6 +9585,9 @@ begin
   Columns.StrictDelimiter := True;
   ForeignColumns := TStringList.Create;
   ForeignColumns.StrictDelimiter := True;
+  // Explicit default action required, since MariaDB and MySQL have different defaults if it's left away, see issue #1320
+  OnUpdate := 'NO ACTION';
+  OnDelete := 'NO ACTION';
 end;
 
 destructor TForeignKey.Destroy;
@@ -9515,6 +9605,7 @@ begin
     s := Source as TForeignKey;
     KeyName := s.KeyName;
     OldKeyName := s.OldKeyName;
+    ReferenceDb := s.ReferenceDb;
     ReferenceTable := s.ReferenceTable;
     OnUpdate := s.OnUpdate;
     OnDelete := s.OnDelete;
@@ -9530,6 +9621,7 @@ end;
 function TForeignKey.SQLCode(IncludeSymbolName: Boolean): String;
 var
   i: Integer;
+  TablePart: String;
 begin
   Result := '';
   // Symbol names are unique in a db. In order to autocreate a valid name we leave the constraint clause away.
@@ -9539,7 +9631,15 @@ begin
   for i:=0 to Columns.Count-1 do
     Result := Result + FConnection.QuoteIdent(Columns[i]) + ', ';
   if Columns.Count > 0 then Delete(Result, Length(Result)-1, 2);
-  Result := Result + ') REFERENCES ' + FConnection.QuoteIdent(ReferenceTable, True, '.') + ' (';
+  Result := Result + ') REFERENCES ';
+  if (not ReferenceDb.IsEmpty) and (ReferenceTable.StartsWith(ReferenceDb)) then begin
+    TablePart := ReferenceTable.Substring(Length(ReferenceDb) + 1);
+    Result := Result + FConnection.QuoteIdent(ReferenceDb) + '.' + FConnection.QuoteIdent(TablePart);
+  end
+  else begin
+    Result := Result + FConnection.QuoteIdent(ReferenceTable, True, '.');
+  end;
+  Result := Result  + ' (';
   for i:=0 to ForeignColumns.Count-1 do
     Result := Result + FConnection.QuoteIdent(ForeignColumns[i]) + ', ';
   if ForeignColumns.Count > 0 then Delete(Result, Length(Result)-1, 2);
@@ -9556,12 +9656,17 @@ var
   RefDb, RefTable: String;
 begin
   // Find database object of reference table
-  RefDb := ReferenceTable.Substring(0, Pos('.', ReferenceTable)-1);
-  if not RefDb.IsEmpty then begin
-    RefTable := ReferenceTable.Substring(Length(RefDb)+1);
+  if (not ReferenceDb.IsEmpty) and (ReferenceTable.StartsWith(ReferenceDb)) then begin
+    RefDb := ReferenceDb;
+    RefTable := ReferenceTable.Substring(Length(ReferenceDb) + 1);
   end else begin
-    RefDb := FConnection.Database;
-    RefTable := ReferenceTable;
+    RefDb := ReferenceTable.Substring(0, Pos('.', ReferenceTable)-1);
+    if not RefDb.IsEmpty then begin
+      RefTable := ReferenceTable.Substring(Length(RefDb)+1);
+    end else begin
+      RefDb := FConnection.Database;
+      RefTable := ReferenceTable;
+    end;
   end;
   Result := FConnection.FindObject(RefDb, RefTable);
 end;

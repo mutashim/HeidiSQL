@@ -173,6 +173,7 @@ type
     updownLongSortRowNum: TUpDown;
     HotKey1: THotKey;
     HotKey2: THotKey;
+    chkLowercaseHex: TCheckBox;
     procedure FormShow(Sender: TObject);
     procedure Modified(Sender: TObject);
     procedure Apply(Sender: TObject);
@@ -213,7 +214,6 @@ type
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
     procedure comboGridTextColorsPresetSelect(Sender: TObject);
     procedure comboThemeSelect(Sender: TObject);
-    procedure FormDestroy(Sender: TObject);
     procedure chkThemePreviewClick(Sender: TObject);
     procedure chkCompletionProposalClick(Sender: TObject);
     procedure HotKeyChange(Sender: TObject);
@@ -365,6 +365,7 @@ begin
   AppSettings.WriteInt(asRowBackgroundOdd, cboxRowBackgroundOdd.Selected);
   AppSettings.WriteInt(asHightlightSameTextBackground, cboxRowHighlightSameText.Selected);
   AppSettings.WriteBool(asDataLocalNumberFormat, chkLocalNumberFormat.Checked);
+  AppSettings.WriteBool(asLowercaseHex, chkLowercaseHex.Checked);
   AppSettings.WriteBool(asHintsOnResultTabs, chkHintsOnResultTabs.Checked);
   AppSettings.WriteInt(asQueryGridLongSortRowNum, updownLongSortRowNum.Position);
 
@@ -469,7 +470,8 @@ begin
       [mbOk]);
   end;
   MainForm.ActionList1.State := asNormal;
-  Action := caFree;
+  AppSettings.WriteInt(asPreferencesWindowWidth, Width);
+  AppSettings.WriteInt(asPreferencesWindowHeight, Height);
 end;
 
 
@@ -496,7 +498,7 @@ begin
 
   // Misecllaneous
   // Hide browse button on Wine, as the browse dialog returns Windows-style paths, while we need a Unix path
-  if MainForm.IsWine then begin
+  if IsWine then begin
     editMySQLBinaries.RightButton.Visible := False;
     editMySQLBinaries.OnDblClick := nil;
   end;
@@ -613,12 +615,6 @@ begin
 end;
 
 
-procedure TfrmPreferences.FormDestroy(Sender: TObject);
-begin
-  AppSettings.WriteInt(asPreferencesWindowWidth, Width);
-  AppSettings.WriteInt(asPreferencesWindowHeight, Height);
-end;
-
 procedure TfrmPreferences.FormShow(Sender: TObject);
 var
   LangCode, GUIFont: String;
@@ -719,6 +715,7 @@ begin
   cboxRowBackgroundOdd.Selected := AppSettings.ReadInt(asRowBackgroundOdd);
   cboxRowHighlightSameText.Selected := AppSettings.ReadInt(asHightlightSameTextBackground);
   chkLocalNumberFormat.Checked := AppSettings.ReadBool(asDataLocalNumberFormat);
+  chkLowercaseHex.Checked := AppSettings.ReadBool(asLowercaseHex);
   chkHintsOnResultTabs.Checked := AppSettings.ReadBool(asHintsOnResultTabs);
   updownLongSortRowNum.Position := AppSettings.ReadInt(asQueryGridLongSortRowNum);
 

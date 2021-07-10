@@ -108,7 +108,6 @@ type
     comboSSL: TComboBox;
     lblSSL: TLabel;
     procedure FormCreate(Sender: TObject);
-    procedure FormDestroy(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure btnAddUserClick(Sender: TObject);
     procedure btnDeleteUserClick(Sender: TObject);
@@ -216,18 +215,11 @@ begin
   FixVT(treePrivs);
   Mainform.RestoreListSetup(listUsers);
   PrivsRead := Explode(',', 'SELECT,SHOW VIEW,SHOW DATABASES,PROCESS,EXECUTE');
-  PrivsWrite := Explode(',', 'ALTER,CREATE,DROP,DELETE,UPDATE,INSERT,ALTER ROUTINE,CREATE ROUTINE,CREATE TEMPORARY TABLES,CREATE VIEW,INDEX,TRIGGER,EVENT,REFERENCES,CREATE TABLESPACE');
-  PrivsAdmin := Explode(',', 'RELOAD,SHUTDOWN,REPLICATION CLIENT,REPLICATION SLAVE,SUPER,LOCK TABLES,GRANT,FILE,CREATE USER');
-end;
-
-
-procedure TUserManagerForm.FormDestroy(Sender: TObject);
-begin
-  // FormDestroy: Save GUI setup
-  AppSettings.WriteInt(asUsermanagerWindowWidth, Width);
-  AppSettings.WriteInt(asUsermanagerWindowHeight, Height);
-  AppSettings.WriteInt(asUsermanagerListWidth, pnlLeft.Width);
-  Mainform.SaveListSetup(listUsers);
+  PrivsWrite := Explode(',', 'ALTER,CREATE,DROP,DELETE,UPDATE,INSERT,ALTER ROUTINE,CREATE ROUTINE,CREATE TEMPORARY TABLES,'+
+    'CREATE VIEW,INDEX,TRIGGER,EVENT,REFERENCES,CREATE TABLESPACE');
+  PrivsAdmin := Explode(',', 'RELOAD,SHUTDOWN,REPLICATION CLIENT,REPLICATION SLAVE,SUPER,LOCK TABLES,GRANT,FILE,CREATE USER,'+
+    'BINLOG ADMIN,BINLOG REPLAY,CONNECTION ADMIN,FEDERATED ADMIN,READ_ONLY ADMIN,REPLICATION MASTER ADMIN,'+
+    'REPLICATION SLAVE ADMIN,SET USER');
 end;
 
 
@@ -240,7 +232,7 @@ end;
 
 procedure TUserManagerForm.FormShow(Sender: TObject);
 var
-  Version: Integer;
+  Version, i: Integer;
   Users: TDBQuery;
   U: TUser;
   tmp, PasswordExpr: String;
@@ -250,12 +242,12 @@ var
   PasswordLengthMatters: Boolean;
   UserTableColumns: TStringList;
 
-function InitPrivList(Values: String): TStringList;
-begin
-  Result := Explode(',', Values);
-  Result.Sorted := True;
-  Result.Duplicates := dupIgnore;
-end;
+  function InitPrivList(Values: String): TStringList;
+  begin
+    Result := Explode(',', Values);
+    Result.Sorted := True; // ensures dupIgnore works
+    Result.Duplicates := dupIgnore;
+  end;
 
 begin
   FConnection := Mainform.ActiveConnection;
@@ -302,6 +294,20 @@ begin
     // MySQL 8 has predefined length of hashed passwords only with
     // mysql_native_password plugin enabled users
     PasswordLengthMatters := False;
+  end;
+  // See https://mariadb.com/kb/en/changes-improvements-in-mariadb-105/#privileges-made-more-granular
+  if FConnection.Parameters.IsMariaDB and (Version > 100502) then begin
+    i := FPrivsGlobal.IndexOf('REPLICATION CLIENT');
+    if i > -1 then
+      FPrivsGlobal.Delete(i);
+    FPrivsGlobal.Add('BINLOG ADMIN'); // replaces REPLICATION CLIENT
+    FPrivsGlobal.Add('BINLOG REPLAY');
+    FPrivsGlobal.Add('CONNECTION ADMIN');
+    FPrivsGlobal.Add('FEDERATED ADMIN');
+    FPrivsGlobal.Add('READ_ONLY ADMIN');
+    FPrivsGlobal.Add('REPLICATION MASTER ADMIN');
+    FPrivsGlobal.Add('REPLICATION SLAVE ADMIN');
+    FPrivsGlobal.Add('SET USER');
   end;
 
   FPrivsTable.AddStrings(FPrivsColumn);
@@ -396,7 +402,11 @@ begin
   FreeAndNil(FPrivsTable);
   FreeAndNil(FPrivsRoutine);
   FreeAndNil(FPrivsColumn);
-  Action := caFree;
+  // Save GUI setup
+  AppSettings.WriteInt(asUsermanagerWindowWidth, Width);
+  AppSettings.WriteInt(asUsermanagerWindowHeight, Height);
+  AppSettings.WriteInt(asUsermanagerListWidth, pnlLeft.Width);
+  Mainform.SaveListSetup(listUsers);
 end;
 
 
@@ -626,7 +636,7 @@ begin
           P.OrgPrivs.AddStrings(P.AllPrivileges);
           P.OrgPrivs.Delete(P.OrgPrivs.IndexOf('GRANT'));
         end else begin
-          rxTemp.Expression := '\b('+ImplodeStr('|', AllPnames)+')(\s+\(([^\)]+)\))?,';
+          rxTemp.Expression := '\b('+Implode('|', AllPnames)+')(\s+\(([^\)]+)\))?,';
           if rxTemp.Exec(rxGrant.Match[1]+',') then while True do begin
             if rxTemp.Match[3] = '' then
               P.OrgPrivs.Add(rxTemp.Match[1])
@@ -942,6 +952,9 @@ begin
     Sender.Expanded[n] := n = Node;
     n := Sender.GetNextSibling(n);
   end;
+  // Init out-of-view children of expanded node, to keep checked state in sync.
+  // Note that ReinitChildren is limited to visible nodes only, which we don't want here.
+  Sender.InitRecursive(Node, 1, False);
 end;
 
 
@@ -1298,7 +1311,7 @@ begin
           WithClauses.Add('MAX_USER_CONNECTIONS '+IntToStr(udMaxUserConnections.Position));
       end;
       if WithClauses.Count > 0 then
-        Grant := Grant + ' WITH ' + ImplodeStr(' ', WithClauses);
+        Grant := Grant + ' WITH ' + Implode(' ', WithClauses);
 
       if P.Added or (P.AddedPrivs.Count > 0) or (WithClauses.Count > 0) or (RequireClause <> '') then
         FConnection.Query(Grant);

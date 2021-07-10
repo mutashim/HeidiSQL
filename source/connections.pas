@@ -156,7 +156,6 @@ type
       NewNode: PVirtualNode; OldColumn, NewColumn: TColumnIndex;
       var Allowed: Boolean);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
-    procedure FormDestroy(Sender: TObject);
     procedure TimerStatisticsTimer(Sender: TObject);
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
     procedure ListSessionsCreateEditor(Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex;
@@ -290,9 +289,6 @@ begin
       if Params.GetNetTypeGroup <> ntg then
         Continue;
       NetTypeStr := Params.NetTypeName(True);
-      if RunningOnWindows10S and (not Params.IsCompatibleToWin10S) then begin
-        NetTypeStr := NetTypeStr + ' ['+_('Does not work on Windows 10 S')+']';
-      end;
       ComboItem := TComboExItem.Create(comboNetType.ItemsEx);
       ComboItem.Caption := NetTypeStr;
       ComboItem.ImageIndex := Params.ImageIndex;
@@ -335,18 +331,8 @@ begin
       RefreshSessions(SessNode);
     end;
   end;
-end;
-
-
-procedure Tconnform.FormDestroy(Sender: TObject);
-begin
-  // Save GUI stuff
-  AppSettings.WriteInt(asSessionManagerListWidth, pnlLeft.Width);
-  AppSettings.WriteInt(asSessionManagerWindowWidth, Width);
-  AppSettings.WriteInt(asSessionManagerWindowHeight, Height);
-  AppSettings.WriteInt(asSessionManagerWindowLeft, Left);
-  AppSettings.WriteInt(asSessionManagerWindowTop, Top);
-  MainForm.SaveListSetup(ListSessions);
+  if not Assigned(ParentNode) then
+    RefreshBackgroundColors;
 end;
 
 
@@ -366,7 +352,13 @@ procedure Tconnform.FormClose(Sender: TObject; var Action: TCloseAction);
 begin
   // Suspend calculating statistics as long as they're not visible
   TimerStatistics.Enabled := False;
-  Action := caFree;
+  // Save GUI stuff
+  AppSettings.WriteInt(asSessionManagerListWidth, pnlLeft.Width);
+  AppSettings.WriteInt(asSessionManagerWindowWidth, Width);
+  AppSettings.WriteInt(asSessionManagerWindowHeight, Height);
+  AppSettings.WriteInt(asSessionManagerWindowLeft, Left);
+  AppSettings.WriteInt(asSessionManagerWindowTop, Top);
+  MainForm.SaveListSetup(ListSessions);
 end;
 
 
@@ -494,6 +486,7 @@ begin
 
   FSessionModified := False;
   ListSessions.Invalidate;
+  RefreshBackgroundColors;
   ValidateControls;
 
   // Apply session color (and othher settings) to opened connection(s)
@@ -972,7 +965,6 @@ begin
     updownKeepAlive.Position := Sess.KeepAlive;
     chkLocalTimeZone.Checked := Sess.LocalTimeZone;
     chkFullTableStatus.Checked := Sess.FullTableStatus;
-    RefreshBackgroundColors;
     ColorBoxBackgroundColor.Selected := Sess.SessionColor;
     editDatabases.Text := Sess.AllDatabasesStr;
     comboLibrary.Items := Sess.GetLibraries;
@@ -1264,7 +1256,7 @@ begin
       Databases.Add(Item.Caption);
   end;
   SelStart := editDatabases.SelStart;
-  editDatabases.Text := implodestr(';', Databases);
+  editDatabases.Text := Implode(';', Databases);
   editDatabases.SelStart := SelStart;
 end;
 
@@ -1449,7 +1441,7 @@ begin
       editSSLCertificate.Enabled := Params.WantSSL;
       lblSSLcipher.Enabled := Params.WantSSL;
       editSSLcipher.Enabled := Params.WantSSL;
-      lblQueryTimeout.Enabled := Params.NetTypeGroup in [ngMSSQL, ngPgSQL, ngSQLite];
+      lblQueryTimeout.Enabled := True;
       editQueryTimeout.Enabled := lblQueryTimeout.Enabled;
       updownQueryTimeout.Enabled := lblQueryTimeout.Enabled;
       chkLocalTimeZone.Enabled := Params.NetTypeGroup = ngMySQL;
@@ -1555,7 +1547,7 @@ begin
       if ExtractFilePath(FileNames[i]) = ExtractFilePath(Application.ExeName) then
         FileNames[i] := ExtractFileName(FileNames[i]);
     end;
-    Edit.Text := implodestr(DELIM, FileNames);
+    Edit.Text := Implode(DELIM, FileNames);
     Modification(Selector);
   end;
   Selector.Free;

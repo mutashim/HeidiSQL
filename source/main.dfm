@@ -1339,9 +1339,9 @@ object MainForm: TMainForm
               RightEdge = 0
               TabWidth = 3
               WantTabs = True
+              OnChange = SynMemoQueryChange
               OnDropFiles = SynMemoQueryDropFiles
               OnReplaceText = SynMemoQueryReplaceText
-              OnStatusChange = SynMemoQueryStatusChange
               OnPaintTransient = SynMemoQueryPaintTransient
               OnScanForFoldRanges = SynMemoQueryScanForFoldRanges
               FontSmoothing = fsmNone
@@ -2034,6 +2034,9 @@ object MainForm: TMainForm
       object Closetab1: TMenuItem
         Action = actCloseQueryTab
       end
+      object Closeallquerytabs1: TMenuItem
+        Action = actCloseAllQueryTabs
+      end
       object N2: TMenuItem
         Caption = '-'
       end
@@ -2166,6 +2169,9 @@ object MainForm: TMainForm
       object Uncomment2: TMenuItem
         Action = actToggleComment
       end
+      object menuEditorCommands: TMenuItem
+        Caption = 'Editor commands'
+      end
       object Folding1: TMenuItem
         Caption = 'Code folding'
         object Codefolding1: TMenuItem
@@ -2194,18 +2200,6 @@ object MainForm: TMainForm
     end
     object MainMenuTools: TMenuItem
       Caption = 'Tools'
-      object Previoustab1: TMenuItem
-        Action = actPreviousTab
-      end
-      object Nexttab1: TMenuItem
-        Action = actNextTab
-      end
-      object Previousresulttab1: TMenuItem
-        Action = actPreviousResult
-      end
-      object Nextresulttab1: TMenuItem
-        Action = actNextResult
-      end
       object Flush1: TMenuItem
         Caption = 'Flush'
         object MenuFlushHosts: TMenuItem
@@ -2269,6 +2263,21 @@ object MainForm: TMainForm
     end
     object MainMenuGoto: TMenuItem
       Caption = 'Go to'
+      object Previoustab1: TMenuItem
+        Action = actPreviousTab
+      end
+      object Nexttab1: TMenuItem
+        Action = actNextTab
+      end
+      object Previousresulttab1: TMenuItem
+        Action = actPreviousResult
+      end
+      object Nextresulttab1: TMenuItem
+        Action = actNextResult
+      end
+      object N16: TMenuItem
+        Caption = '-'
+      end
       object actGotoFilter1: TMenuItem
         Action = actGotoFilter
       end
@@ -3517,6 +3526,13 @@ object MainForm: TMainForm
       ImageIndex = 58
       OnExecute = actRenameQueryTabExecute
     end
+    object actCloseAllQueryTabs: TAction
+      Category = 'File'
+      Caption = 'Close all query tabs'
+      Enabled = False
+      ImageIndex = 133
+      OnExecute = actCloseAllQueryTabsExecute
+    end
   end
   object menuConnections: TPopupMenu
     AutoHotkeys = maManual
@@ -4103,7 +4119,6 @@ object MainForm: TMainForm
     end
     object menuQueryExplain: TMenuItem
       Caption = 'Explain'
-      OnClick = menuQueryExplainClick
       object Explaincurrentquery1: TMenuItem
         Action = actExplainCurrentQuery
       end
@@ -4304,6 +4319,17 @@ object MainForm: TMainForm
       Caption = 'Close query tab'
       ImageIndex = 133
       OnClick = menuCloseQueryTabClick
+    end
+    object menuCloseRightQueryTabs: TMenuItem
+      Caption = 'Close query tabs to the right'
+      ImageIndex = 133
+      OnClick = menuCloseRightQueryTabsClick
+    end
+    object actCloseAllQueryTabs1: TMenuItem
+      Action = actCloseAllQueryTabs
+    end
+    object N25: TMenuItem
+      Caption = '-'
     end
     object menuRenameQueryTab: TMenuItem
       Caption = 'Rename tab'

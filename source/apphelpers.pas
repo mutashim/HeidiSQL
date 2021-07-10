@@ -138,10 +138,14 @@ type
     procedure LogFromThread(Msg: String; Category: TDBLogCategory);
   end;
 
+  TSqlTranspiler = class(TObject)
+    class function CreateTable(SQL: String; SourceDb, TargetDb: TDBConnection): String;
+  end;
+
   TAppSettingDataType = (adInt, adBool, adString);
   TAppSettingIndex = (asHiddenColumns, asFilter, asSort, asDisplayedColumnsSorted, asLastSessions,
     asLastActiveSession, asAutoReconnect, asRestoreLastUsedDB, asLastUsedDB, asTreeBackground, asIgnoreDatabasePattern, asLogFileDdl, asLogFileDml, asLogFilePath,
-    asFontName, asFontSize, asTabWidth, asDataFontName, asDataFontSize, asDataLocalNumberFormat, asHintsOnResultTabs, asHightlightSameTextBackground,
+    asFontName, asFontSize, asTabWidth, asDataFontName, asDataFontSize, asDataLocalNumberFormat, asLowercaseHex, asHintsOnResultTabs, asHightlightSameTextBackground,
     asLogsqlnum, asLogsqlwidth, asSessionLogsDirectory, asLogHorizontalScrollbar, asSQLColActiveLine,
     asSQLColMatchingBraceForeground, asSQLColMatchingBraceBackground,
     asMaxColWidth, asDatagridMaximumRows, asDatagridRowsPerStep, asGridRowLineCount, asReuseEditorConfiguration,
@@ -149,7 +153,7 @@ type
     asMainWinHeight, asMainWinOnMonitor, asCoolBandIndex, asCoolBandBreak, asCoolBandWidth, asToolbarShowCaptions, asQuerymemoheight, asDbtreewidth,
     asDataPreviewHeight, asDataPreviewEnabled, asLogHeight, asQueryhelperswidth, asStopOnErrorsInBatchMode,
     asWrapLongLines, asCodeFolding, asDisplayBLOBsAsText, asSingleQueries, asMemoEditorWidth, asMemoEditorHeight, asMemoEditorMaximized,
-    asMemoEditorWrap, asDelimiter, asSQLHelpWindowLeft, asSQLHelpWindowTop, asSQLHelpWindowWidth,
+    asMemoEditorWrap, asMemoEditorHighlighter, asDelimiter, asSQLHelpWindowLeft, asSQLHelpWindowTop, asSQLHelpWindowWidth,
     asSQLHelpWindowHeight, asSQLHelpPnlLeftWidth, asSQLHelpPnlRightTopHeight, asHost,
     asUser, asPassword, asCleartextPluginEnabled, asWindowsAuth, asLoginPrompt, asPort, asLibrary, asAllProviders,
     asPlinkExecutable, asSSHtunnelHost, asSSHtunnelHostPort, asSSHtunnelPort, asSSHtunnelUser,
@@ -211,6 +215,7 @@ type
       FReads, FWrites: Integer;
       FBasePath: String;
       FSessionPath: String;
+      FStoredPath: String;
       FRegistry: TRegistry;
       FPortableMode: Boolean;
       FPortableModeReadOnly: Boolean;
@@ -255,6 +260,8 @@ type
       function SessionPathExists(SessionPath: String): Boolean;
       function IsEmptyKey: Boolean;
       procedure ResetPath;
+      procedure StorePath;
+      procedure RestorePath;
       property SessionPath: String read FSessionPath write SetSessionPath;
       property PortableMode: Boolean read FPortableMode;
       property PortableModeReadOnly: Boolean read FPortableModeReadOnly write FPortableModeReadOnly;
@@ -273,7 +280,7 @@ type
 
 {$I const.inc}
 
-  function implodestr(seperator: String; a: TStrings) :String;
+  function Implode(Separator: String; a: TStrings): String;
   function Explode(Separator, Text: String) :TStringList;
   procedure ExplodeQuotedList(Text: String; var List: TStringList);
   function StrEllipsis(const S: String; MaxLen: Integer; FromLeft: Boolean=True): String;
@@ -289,7 +296,6 @@ type
   function IsInt(Str: String): Boolean;
   function IsFloat(Str: String): Boolean;
   function ScanLineBreaks(Text: String): TLineBreaks;
-  function CountLineBreaks(Text: String; LineBreak: TLineBreaks=lbsWindows): Cardinal;
   function fixNewlines(txt: String): String;
   function GetShellFolder(FolderId: TGUID): String;
   function ValidFilename(Str: String): String;
@@ -366,7 +372,6 @@ type
   function IsValidFilePath(FilePath: String): Boolean;
   function FileIsWritable(FilePath: String): Boolean;
   function GetProductInfo(dwOSMajorVersion, dwOSMinorVersion, dwSpMajorVersion, dwSpMinorVersion: DWORD; out pdwReturnedProductType: DWORD): BOOL stdcall; external kernel32 delayed;
-  function RunningOnWindows10S: Boolean;
   function GetCurrentPackageFullName(out Len: Cardinal; Name: PWideChar): Integer; stdcall; external kernel32 delayed;
   function GetUwpFullName: String;
   function RunningAsUwp: Boolean;
@@ -376,17 +381,20 @@ type
   procedure ToggleCheckBoxWithoutClick(chk: TCheckBox; State: Boolean);
   function SynCompletionProposalPrettyText(ImageIndex: Integer; LeftText, CenterText, RightText: String; LeftColor: TColor=-1; CenterColor: TColor=-1; RightColor: TColor=-1): String;
   function PopupComponent(Sender: TObject): TComponent;
+  function IsWine: Boolean;
+  function DirSep: Char;
 
 var
   AppSettings: TAppSettings;
   MutexHandle: THandle = 0;
-  SystemImageList: TImageList;
+  SystemImageList: TImageList = nil;
   mtCriticalConfirmation: TMsgDlgType = mtCustom;
   ConfirmIcon: TIcon;
   NumberChars: TSysCharSet;
   LibHandleUser32: THandle;
   UTF8NoBOMEncoding: TUTF8NoBOMEncoding;
   DateTimeNever: TDateTime;
+  IsWineStored: Integer = -1;
 
 implementation
 
@@ -421,7 +429,7 @@ end;
   @param a TStringList Containing strings
   @return string
 }
-function implodestr(seperator: String; a: TStrings) :String;
+function Implode(Separator: String; a: TStrings): String;
 var
   i : Integer;
 begin
@@ -430,10 +438,9 @@ begin
   begin
     Result := Result + a[i];
     if i < a.Count-1 then
-      Result := Result + seperator;
+      Result := Result + Separator;
   end;
 end;
-
 
 
 function Explode(Separator, Text: String): TStringList;
@@ -575,17 +582,20 @@ end;
 
 {***
   Return filesize of a given file
+  Partly taken from https://www.delphipraxis.net/194137-getfilesize-welches-ist-die-bessere-funktion-2.html
   @param string Filename
   @return int64 Size in bytes
 }
 function _GetFileSize(Filename: String): Int64;
 var
-  Attr: _WIN32_FILE_ATTRIBUTE_DATA;
+  Attr: TWin32FileAttributeData;
 begin
-  if FileExists(Filename) then begin
-    GetFileAttributesEx(PChar(Filename), GetFileExInfoStandard, @Attr);
+  FillChar(Attr, SizeOf(Attr), 0);
+  if GetFileAttributesEx(PChar(Filename), GetFileExInfoStandard, @Attr) then
+  begin
     Result := Int64(Attr.nFileSizeHigh) shl 32 + Int64(Attr.nFileSizeLow);
-  end else
+  end
+  else
     Result := -1;
 end;
 
@@ -741,28 +751,6 @@ begin
     if Result = lbsMixed then
       break;
   until i > SeekSize;
-end;
-
-
-function CountLineBreaks(Text: String; LineBreak: TLineBreaks=lbsWindows): Cardinal;
-var
-  Offset: Integer;
-  BreakStr: String;
-begin
-  // Count number of given line breaks in text
-  Result := 0;
-  case LineBreak of
-    lbsWindows: BreakStr := CRLF;
-    lbsUnix: BreakStr := LB_UNIX;
-    lbsMac: BreakStr := LB_MAC;
-    lbsWide: BreakStr := LB_WIDE;
-    else Exit;
-  end;
-  Offset := PosEx(BreakStr, Text, 1);
-  while Offset <> 0 do begin
-    Inc(Result);
-    Offset := PosEx(BreakStr, Text, Offset + Length(BreakStr));
-  end;
 end;
 
 
@@ -2290,6 +2278,9 @@ var
       Btn.Default := True;
   end;
 begin
+  // Remember current path and restore it later, so the caller does not try to read from the wrong path after this dialog
+  AppSettings.StorePath;
+
   if (Win32MajorVersion >= 6) and StyleServices.Enabled then begin
     // Use modern task dialog on Vista and above
     Dialog := TTaskDialog.Create(nil);
@@ -2310,7 +2301,10 @@ begin
     if Assigned(MainForm) and (MainForm.ActiveConnection <> nil) then
       Dialog.Caption := MainForm.ActiveConnection.Parameters.SessionName + ': ' + Dialog.Caption;
     rx := TRegExpr.Create;
-    rx.Expression := 'https?://\S+';
+    // This expression does not correctly detect filenames with all allowed characters, for which we would
+    // need to take TPath.GetInvalidPathChars into account. But to not excessively eat parts of the following
+    // text, we stop at the first space character
+    rx.Expression := '(https?://|[A-Z]\:\\)\S+';
     Dialog.Text := rx.Replace(Msg, '<a href="$0">$0</a>', True);
     rx.Free;
 
@@ -2402,6 +2396,8 @@ begin
     else
       Result := mrNo;
   end;
+
+  AppSettings.RestorePath;
 end;
 
 
@@ -2785,26 +2781,6 @@ begin
 end;
 
 
-function RunningOnWindows10S: Boolean;
-const
-  PRODUCT_CLOUD = $000000B2;  //* Windows 10 S
-  PRODUCT_CLOUDN = $000000B3; //* Windows 10 S N
-  PRODUCT_CORE = $00000065;   //* Windows 10 Home
-var
-  pdwReturnedProductType: DWORD;
-begin
-  // Detect if we're running on Windows 10 S
-  // Taken from https://forums.embarcadero.com/message.jspa?messageID=900804
-  Result := False;
-  // Avoid crash on WinXP
-  if Win32MajorVersion >= 6 then begin
-    if GetProductInfo(Win32MajorVersion, Win32MinorVersion, TOSVersion.ServicePackMajor, TOSVersion.ServicePackMinor, pdwReturnedProductType) then begin
-      Result := (pdwReturnedProductType = PRODUCT_CLOUD) OR (pdwReturnedProductType = PRODUCT_CLOUDN);
-    end;
-  end;
-end;
-
-
 function GetUwpFullName: String;
 var
   Len: Cardinal;
@@ -2915,6 +2891,34 @@ begin
     Result := (Menu as TPopupMenu).PopupComponent;
 end;
 
+
+function IsWine: Boolean;
+var
+  NTHandle: THandle;
+  wine_nt_to_unix_file_name: procedure(p1:pointer; p2:pointer); stdcall;
+begin
+  // Detect if we're running on Wine, not on native Windows
+  // Idea taken from http://ruminatedrumblings.blogspot.com/2008/04/detecting-virtualized-environment.html
+  if IsWineStored = -1 then begin
+    NTHandle := LoadLibrary('NTDLL.DLL');
+    if NTHandle>32 then
+      wine_nt_to_unix_file_name := GetProcAddress(NTHandle, 'wine_nt_to_unix_file_name')
+    else
+      wine_nt_to_unix_file_name := nil;
+    IsWineStored := IfThen(Assigned(wine_nt_to_unix_file_name), 1, 0);
+    FreeLibrary(NTHandle);
+  end;
+  Result := IsWineStored = 1;
+end;
+
+
+function DirSep: Char;
+begin
+  if IsWine then
+    Result := '/'
+  else
+    Result := '\';
+end;
 
 
 { Threading stuff }
@@ -3043,7 +3047,9 @@ end;
 
 function TSQLSentence.GetSQL: String;
 begin
-  Result := Copy(FOwner.SQL, LeftOffset, RightOffset-LeftOffset);
+  // Result := Copy(FOwner.SQL, LeftOffset, RightOffset-LeftOffset);
+  // Probably faster than Copy():
+  SetString(Result, PChar(FOwner.SQL) +LeftOffset -1, RightOffset-LeftOffset);
 end;
 
 
@@ -3231,7 +3237,7 @@ var
   ContentChunk: UTF8String;
 begin
   DoStore := False;
-  if MainForm.IsWine then
+  if IsWine then
     OS := 'Linux/Wine'
   else
     OS := 'Windows NT '+IntToStr(Win32MajorVersion)+'.'+IntToStr(Win32MinorVersion);
@@ -3328,6 +3334,21 @@ begin
 end;
 
 
+{ TSqlTranspiler }
+
+class function TSqlTranspiler.CreateTable(SQL: String; SourceDb, TargetDb: TDBConnection): String;
+begin
+  Result := SQL;
+
+  if SourceDb.Parameters.IsMySQL(False) and TargetDb.Parameters.IsMariaDB then begin
+    // Remove COLLATE clause from virtual column definition:
+    // `tax_status` varchar(255) COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS (json_unquote(json_extract(`price`,'$.taxStatus'))) VIRTUAL
+    Result := ReplaceRegExpr('\sCOLLATE\s\w+(\s+GENERATED\s)', Result, '$1', [rroModifierI, rroUseSubstitution]);
+  end;
+
+end;
+
+
 
 { TAppSettings }
 
@@ -3411,6 +3432,7 @@ begin
   InitSetting(asDataFontName,                     'DataFontName',                          0, False, 'Tahoma');
   InitSetting(asDataFontSize,                     'DataFontSize',                          8);
   InitSetting(asDataLocalNumberFormat,            'DataLocalNumberFormat',                 0, True);
+  InitSetting(asLowercaseHex,                     'LowercaseHex',                          0, True);
   InitSetting(asHintsOnResultTabs,                'HintsOnResultTabs',                     0, True);
   InitSetting(asHightlightSameTextBackground,     'HightlightSameTextBackground',          GetThemeColor(clInfoBk));
   InitSetting(asLogsqlnum,                        'logsqlnum',                             300);
@@ -3451,6 +3473,7 @@ begin
   InitSetting(asMemoEditorHeight,                 'MemoEditorHeight',                      100);
   InitSetting(asMemoEditorMaximized,              'MemoEditorMaximized',                   0, False);
   InitSetting(asMemoEditorWrap,                   'MemoEditorWrap',                        0, False);
+  InitSetting(asMemoEditorHighlighter,            'MemoEditorHighlighter_%s',              0, False, 'General', True);
   InitSetting(asDelimiter,                        'Delimiter',                             0, False, ';');
   InitSetting(asSQLHelpWindowLeft,                'SQLHelp_WindowLeft',                    0);
   InitSetting(asSQLHelpWindowTop,                 'SQLHelp_WindowTop',                     0);
@@ -3521,7 +3544,7 @@ begin
   InitSetting(asGridExportTerminator,             'GridExportTerminator',                  0, False, '\r\n');
   InitSetting(asGridExportNull,                   'GridExportNull',                        0, False, '\N');
   // Copy to clipboard defaults:
-  InitSetting(asGridExportClpColumnNames,         'GridExportClpColumnNames',              0, False);
+  InitSetting(asGridExportClpColumnNames,         'GridExportClpColumnNames',              0, True);
   InitSetting(asGridExportClpIncludeAutoInc,      'GridExportClpAutoInc',                  0, True);
   InitSetting(asGridExportClpRemoveLinebreaks,    'GridExportClpRemoveLinebreaks',         0, False);
   InitSetting(asGridExportClpSeparator,           'GridExportClpSeparator',                0, False, ';');
@@ -3764,6 +3787,17 @@ begin
 end;
 
 
+procedure TAppSettings.StorePath;
+begin
+  FStoredPath := SessionPath;
+end;
+
+procedure TAppSettings.RestorePath;
+begin
+  SessionPath := FStoredPath;
+end;
+
+
 procedure TAppSettings.PrepareRegistry;
 var
   Folder: String;
@@ -3828,6 +3862,8 @@ procedure TAppSettings.DeleteCurrentKey;
 var
   KeyPath: String;
 begin
+  // Delete the current registry key
+  // Note that, contrary to the documentation, .DeleteKey is done even when this key has subkeys
   PrepareRegistry;
   if FSessionPath.IsEmpty then
     raise Exception.CreateFmt(_('No path set, won''t delete root key %s'), [FRegistry.CurrentPath])
@@ -4111,7 +4147,7 @@ begin
     raise Exception.CreateFmt('File does not exist: %s', [Filename]);
   end;
 
-  Content := ReadTextfile(FileName, nil);
+  Content := ReadTextfile(FileName, UTF8NoBOMEncoding);
   Lines := Explode(CRLF, Content);
   for i:=0 to Lines.Count-1 do begin
     // Each line has 3 segments: reg path | data type | value. Continue if explode finds less or more than 3.
